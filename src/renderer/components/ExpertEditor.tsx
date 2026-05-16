@@ -1,7 +1,11 @@
 /**
  * 单个专家编辑器
  *
- * 展开后显示专家的所有可编辑字段。
+ * Round 7 Phase 2: Enhanced per Section XIV.
+ * - Capability badges (thinking/json/streaming/vision)
+ * - Preview badge for preview models
+ * - Custom model ID input with unverified warning
+ * - Status badges for all model statuses
  */
 
 import React, { useState, useEffect } from 'react'
@@ -14,10 +18,32 @@ interface ExpertEditorProps {
   onDelete: () => void
 }
 
+/** Capability badge component */
+const CapBadge: React.FC<{ label: string; active: boolean; title?: string }> = ({ label, active, title }) => (
+  <span
+    title={title}
+    style={{
+      display: 'inline-block',
+      padding: '1px 5px',
+      margin: '0 2px',
+      borderRadius: '3px',
+      fontSize: '10px',
+      fontWeight: 600,
+      background: active ? '#1a73e8' : '#444',
+      color: active ? '#fff' : '#888',
+      opacity: active ? 1 : 0.5
+    }}
+  >
+    {label}
+  </span>
+)
+
 const ExpertEditor: React.FC<ExpertEditorProps> = ({ expert, onUpdate, onDelete }) => {
   const [name, setName] = useState(expert.name)
   const [provider, setProvider] = useState(expert.provider ?? '')
   const [model, setModel] = useState(expert.model ?? '')
+  const [customModelId, setCustomModelId] = useState('')
+  const [useCustomModel, setUseCustomModel] = useState(false)
   const [persona, setPersona] = useState(expert.persona ?? '')
   const [domain, setDomain] = useState(expert.domain ?? '')
   const [stance, setStance] = useState(expert.stance ?? '')
@@ -38,27 +64,44 @@ const ExpertEditor: React.FC<ExpertEditorProps> = ({ expert, onUpdate, onDelete 
     setAggression(expert.aggression)
     setThinkingEnabled(expert.thinking_enabled)
     setSupportsThinking(expert.supports_thinking)
+    setUseCustomModel(false)
+    setCustomModelId('')
   }, [expert])
 
   const handleProviderChange = (newProvider: string) => {
     setProvider(newProvider)
     setModel('')
     setSupportsThinking(0)
-    setThinkingEnabled(0) // 重置 thinking —— 直到选择了支持 thinking 的模型
+    setThinkingEnabled(0)
+    setUseCustomModel(false)
+    setCustomModelId('')
   }
 
   const handleModelChange = (newModel: string) => {
+    if (newModel === '__custom__') {
+      setUseCustomModel(true)
+      setModel('')
+      return
+    }
+    setUseCustomModel(false)
+    setCustomModelId('')
     setModel(newModel)
     if (provider && newModel) {
       const modelInfo = findModel(provider, newModel)
       if (modelInfo) {
         const st = modelInfo.supportsThinking ? 1 : 0
         setSupportsThinking(st)
-        // 如果模型支持 thinking，则默认开启；不支持则关闭
         setThinkingEnabled(st)
       }
     } else {
-      // 清空模型选择时重置 thinking
+      setSupportsThinking(0)
+      setThinkingEnabled(0)
+    }
+  }
+
+  const handleCustomModelConfirm = () => {
+    if (customModelId.trim()) {
+      setModel(customModelId.trim())
       setSupportsThinking(0)
       setThinkingEnabled(0)
     }
@@ -68,7 +111,7 @@ const ExpertEditor: React.FC<ExpertEditorProps> = ({ expert, onUpdate, onDelete 
     onUpdate({
       name: name.trim() || '专家',
       provider: provider || null,
-      model: model || null,
+      model: (useCustomModel ? customModelId.trim() : model) || null,
       persona: persona || null,
       domain: domain || null,
       stance: stance || null,
@@ -91,6 +134,10 @@ const ExpertEditor: React.FC<ExpertEditorProps> = ({ expert, onUpdate, onDelete 
   const selectedProviderModels = provider
     ? PROVIDERS.find((p) => p.id === provider)?.models ?? []
     : []
+
+  const currentModelInfo = model && provider ? findModel(provider, model) : null
+  const isPreview = currentModelInfo?.notes?.toLowerCase().includes('preview') ||
+    currentModelInfo?.displayName?.toLowerCase().includes('preview') || false
 
   return (
     <div className="expert-editor">
@@ -124,22 +171,100 @@ const ExpertEditor: React.FC<ExpertEditorProps> = ({ expert, onUpdate, onDelete 
           <label className="form-label">Model</label>
           <select
             className="form-select"
-            value={model}
+            value={useCustomModel ? '__custom__' : model}
             onChange={(e) => handleModelChange(e.target.value)}
             disabled={!provider}
           >
             <option value="">-- 未选择 --</option>
-            {selectedProviderModels.map((m) => (
-              <option key={m.model} value={m.model}>
-                {m.displayName}
-              </option>
-            ))}
+            {selectedProviderModels.map((m) => {
+              const statusLabel = m.status === 'unverified' ? ' ⚠️ unverified'
+                : m.status === 'stub' ? ' ❌ stub' : ''
+              return (
+                <option
+                  key={m.model}
+                  value={m.model}
+                  disabled={m.status === 'stub'}
+                >
+                  {m.displayName}{statusLabel}
+                </option>
+              )
+            })}
+            {provider && <option value="__custom__">自定义 Model ID...</option>}
           </select>
         </div>
       </div>
 
+      {/* Custom model input */}
+      {useCustomModel && provider && (
+        <div className="form-group">
+          <label className="form-label">自定义 Model ID</label>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <input
+              className="form-input"
+              value={customModelId}
+              onChange={(e) => setCustomModelId(e.target.value)}
+              placeholder="输入完整的 model ID"
+              style={{ flex: 1 }}
+            />
+            <button
+              className="btn btn-secondary btn-small"
+              onClick={handleCustomModelConfirm}
+              disabled={!customModelId.trim()}
+            >
+              确认
+            </button>
+          </div>
+          <div className="form-hint warning" style={{ color: '#f0a020' }}>
+            ⚠️ 自定义模型永远为 unverified 状态。需在 Provider 设置中开启「允许 Unverified 模型」并通过连接测试后才可用于会议。
+          </div>
+        </div>
+      )}
+
       {!provider && (
         <div className="form-hint warning">未选择模型</div>
+      )}
+
+      {/* Status & capability badges */}
+      {model && currentModelInfo && (
+        <div style={{ marginBottom: '8px' }}>
+          {currentModelInfo.status === 'unverified' && (
+            <div className="form-hint warning" style={{ color: '#f0a020', marginBottom: '4px' }}>
+              ⚠️ 此模型为 unverified 状态，可能需要实测确认可用性。
+            </div>
+          )}
+          {currentModelInfo.status === 'stub' && (
+            <div className="form-hint warning" style={{ color: '#e04040', marginBottom: '4px' }}>
+              ❌ 此模型为 stub 状态，适配器未实现，无法使用。
+            </div>
+          )}
+          {isPreview && (
+            <span style={{
+              display: 'inline-block',
+              padding: '2px 6px',
+              borderRadius: '4px',
+              fontSize: '11px',
+              fontWeight: 600,
+              background: '#ff9800',
+              color: '#fff',
+              marginRight: '6px',
+              marginBottom: '4px'
+            }}>
+              Preview
+            </span>
+          )}
+          <div style={{ marginTop: '2px' }}>
+            <CapBadge label="Thinking" active={currentModelInfo.supportsThinking} title="支持深度思考" />
+            <CapBadge label="JSON" active={currentModelInfo.supportsJson} title="支持 JSON 输出" />
+            <CapBadge label="Stream" active={currentModelInfo.supportsStreaming} title="支持流式输出" />
+            <CapBadge label="Vision" active={currentModelInfo.supportsVision} title="支持视觉输入" />
+          </div>
+        </div>
+      )}
+
+      {model && !currentModelInfo && (
+        <div className="form-hint warning" style={{ color: '#f0a020' }}>
+          ⚠️ 自定义模型 "{model}" 不在模型注册表中，状态为 unverified。
+        </div>
       )}
 
       {supportsThinking === 1 && (

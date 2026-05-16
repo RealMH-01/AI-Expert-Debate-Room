@@ -68,6 +68,29 @@ CREATE TABLE IF NOT EXISTS session_reviews (
 CREATE INDEX IF NOT EXISTS idx_session_participants_session ON session_participants(session_id);
 CREATE INDEX IF NOT EXISTS idx_session_reviews_session ON session_reviews(session_id);
 `
+  },
+  {
+    version: 3,
+    name: '添加 provider_models 远程模型缓存表',
+    sql: `
+-- ============================
+-- 远程模型列表缓存
+-- 用于缓存各 Provider 的 /v1/models 返回结果
+-- ============================
+CREATE TABLE IF NOT EXISTS provider_models (
+  id              TEXT PRIMARY KEY,
+  provider_id     TEXT NOT NULL,
+  api_model_id    TEXT NOT NULL,
+  display_name    TEXT,
+  status          TEXT NOT NULL DEFAULT 'unverified',
+  source          TEXT NOT NULL DEFAULT 'remote',
+  fetched_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_provider_models_provider ON provider_models(provider_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_models_unique ON provider_models(provider_id, api_model_id);
+`
   }
 ]
 

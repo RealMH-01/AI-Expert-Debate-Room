@@ -101,31 +101,25 @@ export interface Agent {
 }
 
 // ===== Model Catalog 类型 =====
+// Round 7: ProviderId is now canonical from modelRegistry.
+// Re-export for backward compatibility.
 
-export type ProviderId =
-  | 'mock'
-  | 'openai'
-  | 'openai_compatible'
-  | 'anthropic'
-  | 'gemini'
-  | 'deepseek'
-  | 'qwen'
-  | 'zhipu'
-  | 'kimi'
+export type { ProviderId, ModelStatus, ModelCapability } from './providers/modelRegistry'
 
 export interface ModelInfo {
-  provider: ProviderId
+  provider: string
   model: string
   displayName: string
   supportsThinking: boolean
   supportsStreaming: boolean
   supportsJson: boolean
   supportsVision: boolean
+  status?: import('./providers/modelRegistry').ModelStatus
   notes: string
 }
 
 export interface ProviderInfo {
-  id: ProviderId
+  id: string
   displayName: string
   models: ModelInfo[]
 }
