@@ -1,7 +1,7 @@
 /**
  * 全局样式
  *
- * 基础布局样式，不做复杂 UI 美化（本轮禁止事项）
+ * 基础布局 + 配置界面样式
  */
 
 * {
@@ -14,10 +14,14 @@
   --color-bg: #1a1a2e;
   --color-bg-secondary: #16213e;
   --color-bg-panel: #0f3460;
+  --color-bg-card: #1e2a4a;
+  --color-bg-input: #0d1b2a;
   --color-accent: #e94560;
+  --color-primary: #4a9eff;
   --color-text: #eaeaea;
   --color-text-muted: #a0a0b0;
   --color-border: #2a2a4a;
+  --color-border-light: #3a3a5a;
   --color-success: #4caf50;
   --color-error: #f44336;
   --color-warning: #ff9800;
@@ -37,6 +41,20 @@ html, body, #root {
   display: flex;
   flex-direction: column;
   height: 100vh;
+}
+
+/* 加载画面 */
+.loading-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  font-size: 18px;
+  color: var(--color-text-muted);
+}
+
+.error-screen {
+  color: var(--color-error);
 }
 
 /* 顶部标题栏 */
@@ -117,6 +135,12 @@ html, body, #root {
   overflow-y: auto;
 }
 
+.center-scroll {
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+
 /* 右侧面板 */
 .panel-right {
   width: 280px;
@@ -137,6 +161,9 @@ html, body, #root {
   border-bottom: 1px solid var(--color-border);
   text-transform: uppercase;
   letter-spacing: 1px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 /* 面板内容 */
@@ -150,35 +177,6 @@ html, body, #root {
   color: var(--color-text-muted);
   font-size: 13px;
   line-height: 1.6;
-}
-
-/* 信息列表 */
-.info-list {
-  list-style: none;
-  padding: 0;
-}
-
-.info-list li {
-  padding: 8px 0;
-  border-bottom: 1px solid var(--color-border);
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.info-list li:last-child {
-  border-bottom: none;
-}
-
-.info-label {
-  color: var(--color-text-muted);
-  font-size: 11px;
-  display: block;
-  margin-bottom: 2px;
-}
-
-.info-value {
-  color: var(--color-text);
-  word-break: break-all;
 }
 
 /* 底部状态栏 */
@@ -218,14 +216,389 @@ html, body, #root {
   line-height: 1.8;
 }
 
-.db-path-display {
-  background-color: var(--color-bg);
+/* ===== 按钮 ===== */
+.btn {
   padding: 8px 16px;
+  border: none;
   border-radius: 4px;
-  font-family: 'Fira Code', 'Consolas', monospace;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background-color: var(--color-primary);
+  color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background-color: #3a8aef;
+}
+
+.btn-danger {
+  background-color: transparent;
+  color: var(--color-error);
+  border: 1px solid var(--color-error);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background-color: var(--color-error);
+  color: white;
+}
+
+.btn-danger.confirm {
+  background-color: var(--color-error);
+  color: white;
+}
+
+.btn-full {
+  width: 100%;
+}
+
+.btn-small {
+  padding: 4px 12px;
   font-size: 12px;
+}
+
+/* ===== 会议室列表 ===== */
+.room-list {
+  margin-top: 12px;
+}
+
+.room-item {
+  padding: 10px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-bottom: 4px;
+  position: relative;
+  transition: background-color 0.15s;
+}
+
+.room-item:hover {
+  background-color: var(--color-bg-card);
+}
+
+.room-item.active {
+  background-color: var(--color-bg-panel);
+  border-left: 3px solid var(--color-primary);
+}
+
+.room-item-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text);
+  margin-bottom: 2px;
+  padding-right: 24px;
+}
+
+.room-item-desc {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.btn-delete-small {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.btn-delete-small:hover {
+  background-color: rgba(244, 67, 54, 0.2);
+  color: var(--color-error);
+}
+
+.btn-delete-small.confirm {
+  background-color: var(--color-error);
+  color: white;
+  font-size: 11px;
+}
+
+/* ===== 配置区段 ===== */
+.config-section {
+  background-color: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 16px;
+}
+
+.section-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: 16px;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.section-header .section-title {
+  margin-bottom: 0;
+}
+
+.subsection-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  margin-top: 12px;
+  margin-bottom: 8px;
+}
+
+/* ===== 表单 ===== */
+.form-group {
+  margin-bottom: 12px;
+}
+
+.form-label {
+  display: block;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin-bottom: 4px;
+}
+
+.form-label-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.form-label-inline input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.form-input, .form-select, .form-textarea {
+  width: 100%;
+  padding: 8px 10px;
+  background-color: var(--color-bg-input);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text);
+  font-size: 13px;
+  font-family: inherit;
+  transition: border-color 0.15s;
+}
+
+.form-input:focus, .form-select:focus, .form-textarea:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.form-select {
+  appearance: auto;
+}
+
+.form-textarea {
+  resize: vertical;
+  min-height: 40px;
+}
+
+.form-range {
+  width: 100%;
+  cursor: pointer;
+}
+
+.form-row {
+  display: flex;
+  gap: 12px;
+}
+
+.flex-1 {
+  flex: 1;
+}
+
+.form-error {
+  display: block;
+  font-size: 11px;
+  color: var(--color-error);
+  margin-top: 4px;
+}
+
+.form-hint {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  margin-top: 4px;
+}
+
+.form-hint.warning {
+  color: var(--color-warning);
+}
+
+/* ===== 专家列表 ===== */
+.expert-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.expert-card {
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.expert-card-header {
+  display: flex;
+  align-items: center;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.expert-card-header:hover {
+  background-color: var(--color-bg-panel);
+}
+
+.expert-card-info {
+  flex: 1;
+}
+
+.expert-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text);
+  display: block;
+}
+
+.expert-meta {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.expert-card-badges {
+  display: flex;
+  gap: 6px;
+  margin-right: 10px;
+}
+
+.badge {
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.badge-hp {
+  background-color: rgba(76, 175, 80, 0.2);
+  color: var(--color-success);
+}
+
+.badge-active {
+  background-color: rgba(74, 158, 255, 0.2);
+  color: var(--color-primary);
+}
+
+.badge-inactive {
+  background-color: rgba(160, 160, 176, 0.2);
+  color: var(--color-text-muted);
+}
+
+.badge-thinking {
+  background-color: rgba(233, 69, 96, 0.2);
   color: var(--color-accent);
-  max-width: 100%;
-  word-break: break-all;
+}
+
+.expand-icon {
+  font-size: 10px;
+  color: var(--color-text-muted);
+}
+
+.expert-editor {
+  padding: 14px;
+  border-top: 1px solid var(--color-border);
+  background-color: var(--color-bg-secondary);
+}
+
+.expert-editor-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* ===== 校验结果 ===== */
+.validation-section {
+  margin-bottom: 16px;
+}
+
+.validation-errors, .validation-warnings {
   margin-top: 8px;
+}
+
+.validation-item {
+  font-size: 12px;
+  padding: 4px 0;
+  line-height: 1.5;
+}
+
+.validation-item.error {
+  color: var(--color-error);
+}
+
+.validation-item.warning {
+  color: var(--color-warning);
+}
+
+.validation-item.success {
+  color: var(--color-success);
+}
+
+/* ===== 规则摘要 ===== */
+.rules-summary, .config-overview, .iron-rules-reminder, .model-info {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border);
+}
+
+.summary-list {
+  list-style: none;
+  padding: 0;
+}
+
+.summary-list li {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  padding: 3px 0;
+  line-height: 1.5;
+}
+
+.summary-list.iron li {
+  font-size: 11px;
+  color: var(--color-warning);
+}
+
+/* ===== 铁律 ===== */
+.iron-rules {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border);
+}
+
+.iron-rule-item {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  padding: 4px 0;
 }
