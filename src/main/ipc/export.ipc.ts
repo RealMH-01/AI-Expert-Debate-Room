@@ -85,6 +85,30 @@ export function registerExportIpc(): void {
     try {
       const db = getDatabase()
 
+      // 获取 settings 并过滤敏感信息
+      const settingsRaw = db.prepare('SELECT * FROM settings').all() as Array<{
+        key: string
+        value_json: string
+        updated_at: string
+      }>
+      const settingsSafe = settingsRaw.map((s) => {
+        if (s.key === 'provider_configs') {
+          // 过滤 API Key
+          try {
+            const configs = JSON.parse(s.value_json || '[]')
+            const safeConfigs = configs.map((c: Record<string, unknown>) => ({
+              ...c,
+              apiKey: c.apiKey ? '****REDACTED****' : '',
+              defaultHeaders: {} // 过滤可能包含 Authorization 的 headers
+            }))
+            return { ...s, value_json: JSON.stringify(safeConfigs) }
+          } catch {
+            return { ...s, value_json: '[]' }
+          }
+        }
+        return s
+      })
+
       const data = {
         exportedAt: new Date().toISOString(),
         rooms: db.prepare('SELECT * FROM rooms').all(),
@@ -95,7 +119,8 @@ export function registerExportIpc(): void {
         settlements: db.prepare('SELECT * FROM settlements').all(),
         agent_snapshots: db.prepare('SELECT * FROM agent_snapshots').all(),
         session_participants: db.prepare('SELECT * FROM session_participants').all(),
-        session_reviews: db.prepare('SELECT * FROM session_reviews').all()
+        session_reviews: db.prepare('SELECT * FROM session_reviews').all(),
+        settings: settingsSafe
       }
 
       const jsonStr = JSON.stringify(data, null, 2)

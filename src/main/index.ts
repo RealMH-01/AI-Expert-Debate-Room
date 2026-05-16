@@ -20,6 +20,7 @@ import { registerDebateIpc } from './ipc/debate.ipc'
 import { registerSettlementIpc } from './ipc/settlement.ipc'
 import { registerHistoryIpc } from './ipc/history.ipc'
 import { registerExportIpc } from './ipc/export.ipc'
+import { registerProviderIpc } from './ipc/provider.ipc'
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -83,6 +84,7 @@ app.whenReady().then(() => {
   registerSettlementIpc()
   registerHistoryIpc()
   registerExportIpc()
+  registerProviderIpc()
 
   // 创建主窗口
   createWindow()

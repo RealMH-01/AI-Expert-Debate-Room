@@ -105,6 +105,7 @@ export interface Agent {
 export type ProviderId =
   | 'mock'
   | 'openai'
+  | 'openai_compatible'
   | 'anthropic'
   | 'gemini'
   | 'deepseek'

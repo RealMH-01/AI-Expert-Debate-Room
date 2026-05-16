@@ -88,7 +88,19 @@ export const IPC_CHANNELS = {
   /** 获取数据库文件路径 */
   EXPORT_GET_DB_PATH: 'export:get-db-path',
   /** 导出全部数据为 JSON */
-  EXPORT_ALL_DATA_JSON: 'export:all-data-json'
+  EXPORT_ALL_DATA_JSON: 'export:all-data-json',
+
+  // ===== Provider Settings 相关 =====
+  /** 获取所有 Provider 配置（安全版，无明文 API Key） */
+  PROVIDER_GET_ALL_CONFIGS: 'provider:get-all-configs',
+  /** 获取单个 Provider 配置（安全版） */
+  PROVIDER_GET_CONFIG: 'provider:get-config',
+  /** 保存 Provider 配置（含 API Key，仅 Main Process 存储） */
+  PROVIDER_SAVE_CONFIG: 'provider:save-config',
+  /** 删除 Provider 配置 */
+  PROVIDER_DELETE_CONFIG: 'provider:delete-config',
+  /** 测试 Provider 连接 */
+  PROVIDER_TEST_CONNECTION: 'provider:test-connection'
 } as const
 
 /** IPC 通道名类型 */
