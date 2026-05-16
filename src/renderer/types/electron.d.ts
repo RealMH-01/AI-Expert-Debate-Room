@@ -4,7 +4,7 @@
  * 声明 window.api 的类型，使渲染进程可以安全调用 IPC API
  */
 
-import type { Room, Agent, RulesConfig, Session, Message, ValidationResult } from '../../shared/types'
+import type { Room, Agent, RulesConfig, Session, Message, ValidationResult, SettlementResultDisplay } from '../../shared/types'
 
 /** 健康检查结果 */
 export interface HealthCheckResult {
@@ -66,6 +66,8 @@ export interface ElectronAPI {
   }) => Promise<IpcResponse<Agent>>
   agentDelete: (id: string) => Promise<IpcResponse<boolean>>
   agentGetById: (id: string) => Promise<IpcResponse<Agent>>
+  agentGetAliveExperts: (roomId: string) => Promise<IpcResponse<Agent[]>>
+  agentGetHellPoolExperts: (roomId: string) => Promise<IpcResponse<Agent[]>>
 
   // Debate / Session
   debateValidate: (roomId: string) => Promise<IpcResponse<ValidationResult>>
@@ -75,11 +77,20 @@ export interface ElectronAPI {
   sessionGetByRoom: (roomId: string) => Promise<IpcResponse<Session[]>>
   messageGetBySession: (sessionId: string) => Promise<IpcResponse<Message[]>>
 
+  // Settlement
+  settlementApply: (sessionId: string) => Promise<IpcResponse<Session>>
+  settlementVeto: (sessionId: string) => Promise<IpcResponse<Session>>
+  settlementHasPending: (sessionId: string) => Promise<IpcResponse<boolean>>
+  settlementGetPending: (sessionId: string) => Promise<IpcResponse<SettlementResultDisplay | null>>
+  votesGetBySession: (sessionId: string) => Promise<IpcResponse<unknown[]>>
+  settlementsGetBySession: (sessionId: string) => Promise<IpcResponse<unknown[]>>
+
   // Debate 事件监听（返回 cleanup 函数）
   onDebateMessage: (callback: (message: Message) => void) => () => void
   onDebatePhaseChange: (callback: (data: { phase: string; session: Session }) => void) => () => void
   onDebateSessionFinished: (callback: (session: Session) => void) => () => void
   onDebateError: (callback: (error: string) => void) => () => void
+  onSettlementReady: (callback: (settlement: SettlementResultDisplay) => void) => () => void
 }
 
 declare global {

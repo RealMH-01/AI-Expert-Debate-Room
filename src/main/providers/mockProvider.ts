@@ -11,14 +11,17 @@
 import type {
   DebateModelProvider,
   DebateGenerateInput,
-  DebateGenerateOutput
+  DebateGenerateOutput,
+  VoteGenerateInput,
+  VoteGenerateOutput
 } from './base'
 import {
   mockModeratorOpening,
   mockExpertInitialAnswer,
   mockExpertDebateTurn,
   mockModeratorRoundSummary,
-  mockModeratorFinalSummary
+  mockModeratorFinalSummary,
+  mockExpertVote
 } from '../debate/prompts/mockTemplates'
 
 /** 模拟网络延迟（毫秒） */
@@ -77,6 +80,12 @@ export class MockProvider implements DebateModelProvider {
     await simulateDelay()
     const content = mockModeratorFinalSummary(input)
     return wrapOutput(content)
+  }
+
+  async generateExpertVote(input: VoteGenerateInput): Promise<VoteGenerateOutput> {
+    await simulateDelay()
+    const rawJson = mockExpertVote(input)
+    return { rawJson }
   }
 }
 

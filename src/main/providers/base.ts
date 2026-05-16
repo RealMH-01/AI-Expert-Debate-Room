@@ -13,6 +13,28 @@
 import type { Agent, DebatePhase, RulesConfig } from '../../shared/types'
 
 /**
+ * 投票生成输入
+ */
+export interface VoteGenerateInput {
+  /** 当前投票的专家 */
+  voter: Agent
+  /** 所有存活专家（含 voter 自己） */
+  aliveExperts: Agent[]
+  /** 之前的辩论 transcript */
+  visibleTranscript: TranscriptEntry[]
+  /** 用户原始问题 */
+  userQuestion: string
+}
+
+/**
+ * 投票生成输出 - 原始 JSON 字符串
+ */
+export interface VoteGenerateOutput {
+  /** 原始 JSON 字符串（交给 VoteValidator 校验） */
+  rawJson: string
+}
+
+/**
  * Provider 输入上下文
  * 包含辩论引擎推进流程所需的完整上下文
  */
@@ -86,4 +108,7 @@ export interface DebateModelProvider {
 
   /** 生成主理人最终总结 */
   generateModeratorFinalSummary(input: DebateGenerateInput): Promise<DebateGenerateOutput>
+
+  /** 生成专家投票 JSON */
+  generateExpertVote(input: VoteGenerateInput): Promise<VoteGenerateOutput>
 }

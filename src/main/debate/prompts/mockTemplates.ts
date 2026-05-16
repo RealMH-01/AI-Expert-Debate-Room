@@ -7,6 +7,7 @@
  */
 
 import type { DebateGenerateInput } from '../../providers/base'
+import type { VoteGenerateInput } from '../../providers/base'
 
 /**
  * 生成主理人开场白
@@ -214,4 +215,41 @@ export function mockModeratorFinalSummary(input: DebateGenerateInput): string {
 
 ---
 会议结束。感谢各位专家的参与。`
+}
+
+/**
+ * 生成专家投票 JSON
+ *
+ * 每个专家对其他所有存活专家评分 0-10。
+ * 投票是匿名同时进行的，所以不传入其他专家的投票结果。
+ * 生成结构化 JSON 字符串，交给 VoteValidator 校验。
+ */
+export function mockExpertVote(input: VoteGenerateInput): string {
+  const { voter, aliveExperts } = input
+  const targets = aliveExperts.filter((e) => e.id !== voter.id)
+
+  const votes = targets.map((target, index) => {
+    // 生成伪随机分数：基于名字 hashCode 模拟差异
+    const baseScore = 5 + ((voter.name.length + target.name.length + index) % 5)
+    const score = Math.min(10, Math.max(0, baseScore))
+
+    return {
+      target: target.id,
+      score,
+      reason: {
+        attacked_what: `${target.name}针对核心前提提出了质疑，攻击了方案的可行性假设`,
+        rebutted_what: `${target.name}成功反驳了关于时间线不合理的质疑`,
+        revised_what: `${target.name}修正了初始方案中的风险评估部分`,
+        survived_claim: `${target.name}关于分阶段实施的核心论点经受住了多轮攻击`,
+        main_weakness: `${target.name}在成本估算和资源约束方面的论证仍然薄弱`
+      }
+    }
+  })
+
+  const ballot = {
+    voter: voter.id,
+    votes
+  }
+
+  return JSON.stringify(ballot, null, 2)
 }

@@ -138,6 +138,8 @@ export type DebatePhase =
   | 'expert_initial'
   | 'debate_round'
   | 'moderator_round_summary'
+  | 'voting'
+  | 'settlement_pending'
   | 'moderator_final_summary'
 
 export interface Session {
@@ -177,6 +179,49 @@ export interface DebateStartParams {
 export interface DebateSessionState {
   session: Session
   messages: Message[]
+}
+
+// ===== 投票 & 结算 共享类型（Renderer 使用） =====
+
+export interface VoteReasonDisplay {
+  attacked_what: string
+  rebutted_what: string
+  revised_what: string
+  survived_claim: string
+  main_weakness: string
+}
+
+export interface RankingEntryDisplay {
+  agentId: string
+  agentName: string
+  scoreSum: number
+  scoreAvg: number
+  voteCount: number
+  rank: number
+  influence: number
+}
+
+export interface SettlementItemDisplay {
+  agentId: string
+  agentName: string
+  rank: number
+  hpBefore: number
+  hpChange: number
+  hpAfter: number
+  enterHellPool: boolean
+  reason: string
+}
+
+export interface SettlementResultDisplay {
+  sessionId: string
+  roundIndex: number
+  rankings: RankingEntryDisplay[]
+  items: SettlementItemDisplay[]
+  status: 'pending' | 'applied' | 'vetoed' | 'skipped'
+  skipReason?: string
+  aliveExpertCount: number
+  /** settlement record ID in database */
+  settlementId?: string
 }
 
 // ===== 配置校验 =====

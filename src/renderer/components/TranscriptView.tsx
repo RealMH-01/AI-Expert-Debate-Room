@@ -20,12 +20,17 @@ const PHASE_LABELS: Record<DebatePhase, string> = {
   expert_initial: '专家首轮回答',
   debate_round: '辩论轮',
   moderator_round_summary: '主理人轮次总结',
+  voting: '匿名互投',
+  settlement_pending: 'HP 结算',
   moderator_final_summary: '主理人最终总结'
 }
 
 /** 获取消息气泡的 CSS class */
 function getMessageClass(msg: Message): string {
   const base = 'transcript-message'
+  if (msg.speaker_role === 'system') {
+    return `${base} message-system`
+  }
   if (msg.speaker_role === 'moderator') {
     return `${base} message-moderator`
   }
@@ -81,10 +86,10 @@ const TranscriptView: React.FC<TranscriptViewProps> = ({ messages, currentPhase 
             <div className={getMessageClass(msg)}>
               <div className="message-header">
                 <span className="message-speaker">
-                  {msg.speaker_role === 'moderator' ? '🎯' : '💡'} {msg.speaker_name}
+                  {msg.speaker_role === 'moderator' ? '🎯' : msg.speaker_role === 'system' ? '⚙️' : '💡'} {msg.speaker_name}
                 </span>
                 <span className="message-role-badge">
-                  {msg.speaker_role === 'moderator' ? '主理人' : '专家'}
+                  {msg.speaker_role === 'moderator' ? '主理人' : msg.speaker_role === 'system' ? '系统' : '专家'}
                 </span>
               </div>
               <div className="message-content">

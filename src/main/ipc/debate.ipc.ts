@@ -13,13 +13,15 @@ import { validateRoomCanStart, startDebate, isDebateRunning } from '../debate/de
 import * as sessionRepo from '../db/repositories/sessionRepository'
 import * as messageRepo from '../db/repositories/messageRepository'
 import type { Session, Message, DebatePhase } from '../../shared/types'
+import type { SettlementResult } from '../voting/voteTypes'
 
 /** 辩论过程事件通道名 */
 export const DEBATE_EVENTS = {
   NEW_MESSAGE: 'debate:event:new-message',
   PHASE_CHANGE: 'debate:event:phase-change',
   SESSION_FINISHED: 'debate:event:session-finished',
-  ERROR: 'debate:event:error'
+  ERROR: 'debate:event:error',
+  SETTLEMENT_READY: 'debate:event:settlement-ready'
 } as const
 
 /**
@@ -80,6 +82,9 @@ export function registerDebateIpc(): void {
           },
           onError: (error: string) => {
             sendToRenderer(DEBATE_EVENTS.ERROR, error)
+          },
+          onSettlementReady: (settlement: SettlementResult) => {
+            sendToRenderer(DEBATE_EVENTS.SETTLEMENT_READY, settlement)
           }
         }
 
