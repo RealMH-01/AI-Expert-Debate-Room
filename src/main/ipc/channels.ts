@@ -37,6 +37,10 @@ export const IPC_CHANNELS = {
   AGENT_DELETE: 'agent:delete',
   /** 获取单个 Agent */
   AGENT_GET_BY_ID: 'agent:get-by-id',
+  /** 获取存活专家 */
+  AGENT_GET_ALIVE_EXPERTS: 'agent:get-alive-experts',
+  /** 获取 Hell Pool 专家 */
+  AGENT_GET_HELL_POOL_EXPERTS: 'agent:get-hell-pool-experts',
 
   // ===== Debate / Session 相关 =====
   /** 校验会议室能否启动辩论 */
@@ -50,7 +54,21 @@ export const IPC_CHANNELS = {
   /** 获取会议室的所有会议 */
   SESSION_GET_BY_ROOM: 'session:get-by-room',
   /** 获取会议的所有消息 */
-  MESSAGE_GET_BY_SESSION: 'message:get-by-session'
+  MESSAGE_GET_BY_SESSION: 'message:get-by-session',
+
+  // ===== Settlement 相关 =====
+  /** 应用 HP 结算 */
+  SETTLEMENT_APPLY: 'settlement:apply',
+  /** 否决 HP 结算 */
+  SETTLEMENT_VETO: 'settlement:veto',
+  /** 检查是否有待确认结算 */
+  SETTLEMENT_HAS_PENDING: 'settlement:has-pending',
+  /** 获取待确认结算详情 */
+  SETTLEMENT_GET_PENDING: 'settlement:get-pending',
+  /** 获取某会议的投票记录 */
+  VOTES_GET_BY_SESSION: 'votes:get-by-session',
+  /** 获取某会议的结算记录 */
+  SETTLEMENTS_GET_BY_SESSION: 'settlements:get-by-session'
 } as const
 
 /** IPC 通道名类型 */

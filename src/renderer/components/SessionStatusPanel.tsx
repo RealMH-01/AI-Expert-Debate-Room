@@ -18,8 +18,10 @@ interface SessionStatusPanelProps {
 const PHASE_PROGRESS: Record<DebatePhase, number> = {
   moderator_opening: 10,
   expert_initial: 25,
-  debate_round: 60,
-  moderator_round_summary: 70,
+  debate_round: 55,
+  moderator_round_summary: 65,
+  voting: 75,
+  settlement_pending: 85,
   moderator_final_summary: 95
 }
 
@@ -93,6 +95,8 @@ function getPhaseLabel(phase: DebatePhase): string {
     expert_initial: '专家首轮回答',
     debate_round: '辩论轮',
     moderator_round_summary: '主理人轮次总结',
+    voting: '匿名互投',
+    settlement_pending: 'HP 结算',
     moderator_final_summary: '主理人最终总结'
   }
   return labels[phase] || phase

@@ -1,15 +1,26 @@
 /**
  * DebatePanel - 辩论面板
  *
- * 整合 NewSessionPanel + TranscriptView + SessionStatusPanel。
+ * 整合 NewSessionPanel + TranscriptView + SessionStatusPanel
+ * + VotingResultPanel + SettlementPreview + HellPoolPanel。
  * 管理辩论事件监听和状态。
  */
 
 import React, { useState, useEffect, useCallback } from 'react'
-import type { Message, Session, ValidationResult, DebatePhase } from '../../shared/types'
+import type {
+  Message,
+  Session,
+  ValidationResult,
+  DebatePhase,
+  SettlementResultDisplay,
+  Agent
+} from '../../shared/types'
 import NewSessionPanel from './NewSessionPanel'
 import TranscriptView from './TranscriptView'
 import SessionStatusPanel from './SessionStatusPanel'
+import VotingResultPanel from './VotingResultPanel'
+import SettlementPreview from './SettlementPreview'
+import HellPoolPanel from './HellPoolPanel'
 
 interface DebatePanelProps {
   roomId: string
@@ -22,6 +33,11 @@ const DebatePanel: React.FC<DebatePanelProps> = ({ roomId }) => {
   const [isRunning, setIsRunning] = useState(false)
   const [validation, setValidation] = useState<ValidationResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  // 投票和结算状态
+  const [settlement, setSettlement] = useState<SettlementResultDisplay | null>(null)
+  const [hellPoolExperts, setHellPoolExperts] = useState<Agent[]>([])
+  const [aliveExperts, setAliveExperts] = useState<Agent[]>([])
 
   // 初始化：校验配置 + 检查运行状态
   useEffect(() => {
@@ -54,10 +70,31 @@ const DebatePanel: React.FC<DebatePanelProps> = ({ roomId }) => {
         if (latestSession.status === 'running') {
           setIsRunning(true)
         }
+
+        // 检查是否有待确认结算
+        const pendingRes = await window.api.settlementGetPending(latestSession.id)
+        if (pendingRes.success && pendingRes.data) {
+          setSettlement(pendingRes.data as SettlementResultDisplay)
+        }
       }
+
+      // 加载专家状态
+      await loadExpertStatus()
     }
 
     init()
+  }, [roomId])
+
+  // 加载专家状态
+  const loadExpertStatus = useCallback(async () => {
+    const aliveRes = await window.api.agentGetAliveExperts(roomId)
+    if (aliveRes.success && aliveRes.data) {
+      setAliveExperts(aliveRes.data)
+    }
+    const hellRes = await window.api.agentGetHellPoolExperts(roomId)
+    if (hellRes.success && hellRes.data) {
+      setHellPoolExperts(hellRes.data)
+    }
   }, [roomId])
 
   // 监听辩论事件
@@ -77,6 +114,8 @@ const DebatePanel: React.FC<DebatePanelProps> = ({ roomId }) => {
       setSession(sess)
       setIsRunning(false)
       setCurrentPhase(sess.current_phase as DebatePhase | null)
+      // 刷新专家状态
+      loadExpertStatus()
     })
 
     const cleanupError = window.api.onDebateError((err: string) => {
@@ -84,13 +123,20 @@ const DebatePanel: React.FC<DebatePanelProps> = ({ roomId }) => {
       setIsRunning(false)
     })
 
+    const cleanupSettlement = window.api.onSettlementReady(
+      (data: SettlementResultDisplay) => {
+        setSettlement(data)
+      }
+    )
+
     return () => {
       cleanupMessage()
       cleanupPhase()
       cleanupFinished()
       cleanupError()
+      cleanupSettlement()
     }
-  }, [])
+  }, [loadExpertStatus])
 
   // 启动辩论
   const handleStartDebate = useCallback(
@@ -99,6 +145,7 @@ const DebatePanel: React.FC<DebatePanelProps> = ({ roomId }) => {
       setMessages([])
       setSession(null)
       setCurrentPhase(null)
+      setSettlement(null)
 
       const res = await window.api.debateStart({ roomId, userQuestion: question })
       if (res.success) {
@@ -109,6 +156,29 @@ const DebatePanel: React.FC<DebatePanelProps> = ({ roomId }) => {
     },
     [roomId]
   )
+
+  // 应用结算
+  const handleApplySettlement = useCallback(async () => {
+    if (!session) return
+    const res = await window.api.settlementApply(session.id)
+    if (res.success) {
+      setSettlement((prev) => (prev ? { ...prev, status: 'applied' } : null))
+      loadExpertStatus()
+    } else {
+      setError(res.error || '应用结算失败')
+    }
+  }, [session, loadExpertStatus])
+
+  // 否决结算
+  const handleVetoSettlement = useCallback(async () => {
+    if (!session) return
+    const res = await window.api.settlementVeto(session.id)
+    if (res.success) {
+      setSettlement((prev) => (prev ? { ...prev, status: 'vetoed' } : null))
+    } else {
+      setError(res.error || '否决结算失败')
+    }
+  }, [session])
 
   return (
     <div className="debate-panel">
@@ -139,6 +209,30 @@ const DebatePanel: React.FC<DebatePanelProps> = ({ roomId }) => {
         <div className="debate-transcript-container">
           <TranscriptView messages={messages} currentPhase={currentPhase} />
         </div>
+      )}
+
+      {/* 投票结果 */}
+      {settlement && settlement.rankings && (
+        <VotingResultPanel
+          rankings={settlement.rankings}
+          visible={currentPhase === 'settlement_pending' || currentPhase === 'moderator_final_summary' || settlement.status !== 'pending'}
+        />
+      )}
+
+      {/* HP 结算预览 */}
+      <SettlementPreview
+        settlement={settlement}
+        onApply={handleApplySettlement}
+        onVeto={handleVetoSettlement}
+        visible={!!settlement}
+      />
+
+      {/* Hell Pool 状态面板 */}
+      {(hellPoolExperts.length > 0 || aliveExperts.length > 0) && (
+        <HellPoolPanel
+          hellPoolExperts={hellPoolExperts}
+          aliveExperts={aliveExperts}
+        />
       )}
     </div>
   )

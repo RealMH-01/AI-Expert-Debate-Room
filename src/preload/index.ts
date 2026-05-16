@@ -67,7 +67,32 @@ const api = {
     const handler = (_event: unknown, data: unknown) => callback(data)
     ipcRenderer.on('debate:event:error', handler)
     return () => ipcRenderer.removeListener('debate:event:error', handler)
-  }
+  },
+
+  // ===== Settlement 事件监听 =====
+  onSettlementReady: (callback: (settlement: unknown) => void) => {
+    const handler = (_event: unknown, data: unknown) => callback(data)
+    ipcRenderer.on('debate:event:settlement-ready', handler)
+    return () => ipcRenderer.removeListener('debate:event:settlement-ready', handler)
+  },
+
+  // ===== Settlement 操作 =====
+  settlementApply: (sessionId: string) =>
+    ipcRenderer.invoke('settlement:apply', sessionId),
+  settlementVeto: (sessionId: string) =>
+    ipcRenderer.invoke('settlement:veto', sessionId),
+  settlementHasPending: (sessionId: string) =>
+    ipcRenderer.invoke('settlement:has-pending', sessionId),
+  settlementGetPending: (sessionId: string) =>
+    ipcRenderer.invoke('settlement:get-pending', sessionId),
+  votesGetBySession: (sessionId: string) =>
+    ipcRenderer.invoke('votes:get-by-session', sessionId),
+  settlementsGetBySession: (sessionId: string) =>
+    ipcRenderer.invoke('settlements:get-by-session', sessionId),
+  agentGetAliveExperts: (roomId: string) =>
+    ipcRenderer.invoke('agent:get-alive-experts', roomId),
+  agentGetHellPoolExperts: (roomId: string) =>
+    ipcRenderer.invoke('agent:get-hell-pool-experts', roomId)
 }
 
 export type ElectronAPI = typeof api

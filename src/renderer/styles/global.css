@@ -906,3 +906,304 @@ html, body, #root {
   background-color: var(--color-primary);
   animation: pulse 1.5s infinite;
 }
+
+/* ===== 投票结果面板 ===== */
+.voting-result-panel {
+  background-color: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.voting-result-panel h3 {
+  font-size: 15px;
+  margin-bottom: 8px;
+  color: var(--color-text);
+}
+
+.voting-note {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  margin-bottom: 12px;
+  font-style: italic;
+}
+
+.ranking-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.ranking-table th {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ranking-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text);
+}
+
+.ranking-table .rank-first {
+  background-color: rgba(76, 175, 80, 0.08);
+}
+
+.ranking-table .rank-last {
+  background-color: rgba(244, 67, 54, 0.08);
+}
+
+.rank-cell {
+  font-size: 16px;
+}
+
+.voting-disclaimer {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  margin-top: 8px;
+}
+
+/* ===== 结算预览面板 ===== */
+.settlement-preview {
+  background-color: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.settlement-preview h3 {
+  font-size: 15px;
+  margin-bottom: 8px;
+  color: var(--color-text);
+}
+
+.settlement-pending {
+  border-color: var(--color-warning);
+}
+
+.settlement-applied {
+  border-color: var(--color-success);
+}
+
+.settlement-vetoed {
+  border-color: var(--color-text-muted);
+}
+
+.settlement-skipped {
+  border-color: var(--color-text-muted);
+}
+
+.settlement-note {
+  font-size: 12px;
+  color: var(--color-warning);
+  margin-bottom: 12px;
+}
+
+.settlement-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.settlement-table th {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.settlement-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text);
+}
+
+.settlement-table .hell-pool-row {
+  background-color: rgba(244, 67, 54, 0.1);
+}
+
+.hp-gain {
+  color: var(--color-success);
+  font-weight: 600;
+}
+
+.hp-loss {
+  color: var(--color-error);
+  font-weight: 600;
+}
+
+.hp-neutral {
+  color: var(--color-text-muted);
+}
+
+.hell-pool-badge {
+  color: var(--color-error);
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.active-badge {
+  color: var(--color-success);
+  font-size: 12px;
+}
+
+.settlement-reason-note {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  margin-bottom: 12px;
+}
+
+.reason-item {
+  display: block;
+  margin: 2px 0;
+}
+
+.settlement-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.btn-apply-settlement {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  background-color: var(--color-success);
+  color: white;
+  transition: all 0.15s;
+}
+
+.btn-apply-settlement:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+.btn-apply-settlement:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-veto-settlement {
+  padding: 10px 20px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  background-color: transparent;
+  color: var(--color-text-muted);
+  transition: all 0.15s;
+}
+
+.btn-veto-settlement:hover:not(:disabled) {
+  border-color: var(--color-error);
+  color: var(--color-error);
+}
+
+.btn-veto-settlement:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ===== Hell Pool 面板 ===== */
+.hell-pool-panel {
+  background-color: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.hell-pool-panel h4 {
+  font-size: 14px;
+  margin-bottom: 12px;
+  color: var(--color-text);
+}
+
+.hell-pool-panel h5 {
+  font-size: 12px;
+  margin-bottom: 8px;
+  color: var(--color-text-muted);
+}
+
+.experts-alive-section {
+  margin-bottom: 12px;
+}
+
+.experts-hell-section {
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border);
+}
+
+.expert-status-list {
+  list-style: none;
+  padding: 0;
+}
+
+.expert-status-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0;
+  font-size: 12px;
+}
+
+.expert-status-item.active {
+  color: var(--color-text);
+}
+
+.expert-status-item.hell {
+  color: var(--color-error);
+  opacity: 0.7;
+}
+
+.expert-name {
+  font-weight: 600;
+  min-width: 80px;
+}
+
+.expert-hp {
+  color: var(--color-success);
+}
+
+.expert-hp-dead {
+  color: var(--color-error);
+}
+
+.expert-influence {
+  color: var(--color-text-muted);
+}
+
+.expert-status-badge {
+  padding: 2px 8px;
+  border-radius: 3px;
+  background-color: rgba(244, 67, 54, 0.15);
+  color: var(--color-error);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.expert-note {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.no-experts {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-style: italic;
+}
+
+/* System messages in transcript */
+.message-system {
+  background-color: rgba(255, 152, 0, 0.05);
+  border-color: rgba(255, 152, 0, 0.2);
+}
