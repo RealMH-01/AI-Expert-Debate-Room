@@ -1,0 +1,16 @@
+appId: com.ai-expert-debate-room
+productName: AI专家修罗场会议室
+directories:
+  buildResources: build
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!electron.vite.config.*'
+  - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+npmRebuild: true
+extraResources:
+  - from: node_modules/better-sqlite3/build
+    to: better-sqlite3/build
+    filter:
+      - '**/*'
