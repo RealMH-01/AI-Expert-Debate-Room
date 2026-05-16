@@ -92,7 +92,27 @@ const api = {
   agentGetAliveExperts: (roomId: string) =>
     ipcRenderer.invoke('agent:get-alive-experts', roomId),
   agentGetHellPoolExperts: (roomId: string) =>
-    ipcRenderer.invoke('agent:get-hell-pool-experts', roomId)
+    ipcRenderer.invoke('agent:get-hell-pool-experts', roomId),
+
+  // ===== History =====
+  historyGetList: (params: { search?: string; roomId?: string; limit?: number; offset?: number }) =>
+    ipcRenderer.invoke('history:get-list', params),
+  historyGetDetail: (sessionId: string) =>
+    ipcRenderer.invoke('history:get-detail', sessionId),
+  historyDeleteSession: (sessionId: string) =>
+    ipcRenderer.invoke('history:delete-session', sessionId),
+  historyGetRoomsForFilter: () =>
+    ipcRenderer.invoke('history:get-rooms-for-filter'),
+  historyGetReview: (sessionId: string) =>
+    ipcRenderer.invoke('history:get-review', sessionId),
+
+  // ===== Export =====
+  exportMarkdown: (sessionId: string) =>
+    ipcRenderer.invoke('export:markdown', sessionId),
+  exportGetDbPath: () =>
+    ipcRenderer.invoke('export:get-db-path'),
+  exportAllDataJson: () =>
+    ipcRenderer.invoke('export:all-data-json')
 }
 
 export type ElectronAPI = typeof api
