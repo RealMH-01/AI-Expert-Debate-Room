@@ -100,7 +100,11 @@ export const IPC_CHANNELS = {
   /** 删除 Provider 配置 */
   PROVIDER_DELETE_CONFIG: 'provider:delete-config',
   /** 测试 Provider 连接 */
-  PROVIDER_TEST_CONNECTION: 'provider:test-connection'
+  PROVIDER_TEST_CONNECTION: 'provider:test-connection',
+  /** 刷新 Provider 远程模型列表 */
+  PROVIDER_REFRESH_MODELS: 'provider:refresh-models',
+  /** 获取 Provider 缓存的远程模型列表 */
+  PROVIDER_GET_CACHED_MODELS: 'provider:get-cached-models'
 } as const
 
 /** IPC 通道名类型 */

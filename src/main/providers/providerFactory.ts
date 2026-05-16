@@ -1,108 +1,200 @@
 /**
  * Provider Factory - Provider 工厂
  *
- * 根据 agent 的 provider/model 配置返回对应的 DebateModelProvider 实例。
+ * Round 7 Phase 2: Strict routing per Sections VIII and XIII.
  *
- * 路由规则（第 6 轮）：
- * - provider === 'mock' -> MockProvider
- * - provider === 'openai' 或 'openai_compatible' -> OpenAICompatibleProvider
- * - 其他 provider（anthropic/gemini/deepseek/qwen/zhipu/kimi）-> 抛错，第 7 轮扩展
- * - Mock 角色继续走 MockProvider，不受真实 Provider 影响
+ * Routes:
+ * - mock -> MockProvider
+ * - openai -> OpenAIAdapter
+ * - openai_compatible -> OpenAICompatibleAdapter
+ * - anthropic -> AnthropicAdapter
+ * - google -> GeminiAdapter
+ * - deepseek -> DeepSeekAdapter
+ * - qwen -> QwenAdapter
+ * - bigmodel -> BigModelAdapter
+ * - moonshot -> MoonshotAdapter
+ * - Unknown provider -> throws error (never silently falls back to Mock)
  *
- * 设计原则：
- * - DebateEngine 按当前发言 agent 的 provider/model 选择 Provider
- * - 不用全局真实 Provider 覆盖整场会议所有角色
- * - 未实现的 Provider 直接抛错，不会静默回退 Mock
+ * Design principles:
+ * - DebateEngine routes by each speaking agent's provider/model
+ * - No global real Provider override for all agents
+ * - Unimplemented/unknown providers throw errors
+ * - Stub models always blocked
+ * - Unverified/custom models require: allowUnverifiedModels=true + successful test
  */
 
 import type { DebateModelProvider } from './base'
 import type { Agent } from '../../shared/types'
 import { getMockProvider } from './mockProvider'
-import { OpenAICompatibleProvider } from './openaiCompatibleProvider'
-import { isProviderConfigured } from './providerSettings'
+import {
+  OpenAIAdapter,
+  OpenAICompatibleAdapter,
+  AnthropicAdapter,
+  GeminiAdapter,
+  DeepSeekAdapter,
+  QwenAdapter,
+  BigModelAdapter,
+  MoonshotAdapter
+} from './adapters'
+import {
+  isProviderConfigured,
+  getProviderConfig,
+  getProviderAllowUnverified
+} from './providerSettings'
+import { findModelCapability, isModelUsableForMeeting } from '../../shared/providers/modelRegistry'
 
-/** 第 6 轮已实现的真实 Provider 列表 */
-const ROUND6_IMPLEMENTED_PROVIDERS = ['openai', 'openai_compatible']
+/** All known provider IDs that have real implementations */
+const IMPLEMENTED_PROVIDERS: string[] = [
+  'openai',
+  'openai_compatible',
+  'anthropic',
+  'google',
+  'deepseek',
+  'qwen',
+  'bigmodel',
+  'moonshot'
+]
 
-/** 第 7 轮待扩展的 Provider（当前未实现，选择会报错） */
-const ROUND7_PENDING_PROVIDERS = ['anthropic', 'gemini', 'deepseek', 'qwen', 'zhipu', 'kimi']
-
-/** 缓存已创建的 Provider 实例 (key: `${providerId}:${model}`) */
+/** Cache of created Provider instances (key: `${providerId}:${model}`) */
 const providerCache = new Map<string, DebateModelProvider>()
 
 /**
- * 根据 Agent 配置获取对应的 Provider 实例
+ * Get the DebateModelProvider for an agent based on its provider/model configuration.
+ *
+ * Section VIII: Strict routing. Unknown provider/model throws, never fallback to Mock.
  */
 export function getProviderForAgent(agent: Agent): DebateModelProvider {
   const providerId = agent.provider || 'mock'
   const model = agent.model || 'mock-basic'
 
-  // Mock 永远返回 MockProvider
+  // Mock always returns MockProvider
   if (providerId === 'mock') {
     return getMockProvider()
   }
 
-  // 缓存 key
+  // Strict: unknown provider throws
+  if (!IMPLEMENTED_PROVIDERS.includes(providerId)) {
+    throw new Error(
+      `Provider "${providerId}" is unknown. Supported providers: mock, ${IMPLEMENTED_PROVIDERS.join(', ')}`
+    )
+  }
+
+  // Cache key
   const cacheKey = `${providerId}:${model}`
   const cached = providerCache.get(cacheKey)
   if (cached) {
     return cached
   }
 
-  // 第 6 轮：只有 openai / openai_compatible 走真实 Provider
-  if (ROUND6_IMPLEMENTED_PROVIDERS.includes(providerId)) {
-    const provider = new OpenAICompatibleProvider({
-      providerId,
-      model,
-      thinkingEnabled: agent.thinking_enabled === 1
-    })
-    providerCache.set(cacheKey, provider)
-    return provider
+  const thinkingEnabled = agent.thinking_enabled === 1
+  let provider: DebateModelProvider
+
+  switch (providerId) {
+    case 'openai':
+      provider = new OpenAIAdapter(model, thinkingEnabled)
+      break
+    case 'openai_compatible':
+      provider = new OpenAICompatibleAdapter(model, thinkingEnabled)
+      break
+    case 'anthropic':
+      provider = new AnthropicAdapter(model, thinkingEnabled)
+      break
+    case 'google':
+      provider = new GeminiAdapter(model, thinkingEnabled)
+      break
+    case 'deepseek':
+      provider = new DeepSeekAdapter(model, thinkingEnabled)
+      break
+    case 'qwen':
+      provider = new QwenAdapter(model, thinkingEnabled)
+      break
+    case 'bigmodel':
+      provider = new BigModelAdapter(model, thinkingEnabled)
+      break
+    case 'moonshot':
+      provider = new MoonshotAdapter(model, thinkingEnabled)
+      break
+    default:
+      // Completely unknown provider - throw error, never silently fall back to Mock
+      throw new Error(
+        `Provider "${providerId}" is unknown. Supported providers: mock, ${IMPLEMENTED_PROVIDERS.join(', ')}`
+      )
   }
 
-  // 未实现的 Provider（第 7 轮扩展）- 直接抛错，不静默回退 Mock
-  if (ROUND7_PENDING_PROVIDERS.includes(providerId)) {
-    throw new Error(
-      `Provider "${providerId}" is not implemented in Round 6. Please use mock/openai/openai_compatible.`
-    )
-  }
-
-  // 完全未知的 provider - 抛错
-  throw new Error(
-    `Provider "${providerId}" is not implemented in Round 6. Please use mock/openai/openai_compatible.`
-  )
+  providerCache.set(cacheKey, provider)
+  return provider
 }
 
 /**
- * 校验 Agent 列表中所有真实 Provider 是否已配置 API Key
+ * Validate that all real Providers for a list of agents are properly configured.
+ * Called before starting a meeting (Section XIII: Strict Meeting Preflight).
  *
- * 在启动会议前调用，如果有 agent 选择了真实 provider 但缺少 API Key，
- * 返回错误列表。
+ * Checks per agent:
+ * 1. Provider is known/implemented
+ * 2. API key is configured and provider is enabled
+ * 3. Model exists in registry OR is custom model
+ * 4. Model status is not 'stub'
+ * 5. If model is 'unverified' or custom: allowUnverifiedModels must be true
+ * 6. If model is unverified/custom + allowUnverifiedModels: last test must be 'success'
  *
- * @returns 错误列表。空数组表示所有 provider 已就绪。
+ * @returns Error list. Empty array means all providers are ready.
  */
 export function validateProvidersReady(agents: Agent[]): string[] {
   const errors: string[] = []
-  const checked = new Set<string>()
+  const checkedProviders = new Set<string>()
 
   for (const agent of agents) {
     const providerId = agent.provider || 'mock'
-    if (providerId === 'mock') continue
-    if (checked.has(providerId)) continue
-    checked.add(providerId)
+    const model = agent.model || ''
 
-    // 第 6 轮：未实现的 Provider 直接报错
-    if (!ROUND6_IMPLEMENTED_PROVIDERS.includes(providerId)) {
-      errors.push(
-        `Provider "${providerId}" is not implemented in Round 6. Please use mock/openai/openai_compatible.（相关 Agent: ${agent.name}）`
-      )
+    if (providerId === 'mock') continue
+
+    // --- Provider-level checks (once per provider) ---
+    if (!checkedProviders.has(providerId)) {
+      checkedProviders.add(providerId)
+
+      // Check 1: Provider is known
+      if (!IMPLEMENTED_PROVIDERS.includes(providerId)) {
+        errors.push(
+          `Provider "${providerId}" is unknown. Supported: mock, ${IMPLEMENTED_PROVIDERS.join(', ')}. (Agent: ${agent.name})`
+        )
+        continue
+      }
+
+      // Check 2: API key configured
+      if (!isProviderConfigured(providerId)) {
+        errors.push(
+          `Provider "${providerId}" 未配置 API Key。请在"设置 > Provider 配置"中配置 ${providerId} 的 API Key 后再启动会议。（相关 Agent: ${agent.name}）`
+        )
+      }
+    }
+
+    // --- Model-level checks (per agent) ---
+    if (!model) {
+      errors.push(`Agent "${agent.name}" 未选择模型。`)
       continue
     }
 
-    if (!isProviderConfigured(providerId)) {
-      errors.push(
-        `Provider "${providerId}" 未配置 API Key。请在"设置 > Provider 配置"中配置 ${providerId} 的 API Key 后再启动会议。（相关 Agent: ${agent.name}）`
-      )
+    const allowUnverified = getProviderAllowUnverified(providerId)
+    const usability = isModelUsableForMeeting(providerId, model, allowUnverified)
+
+    if (!usability.allowed) {
+      errors.push(`${usability.reason} (Agent: ${agent.name})`)
+      continue
+    }
+
+    // Check for unverified/custom models: require successful test
+    const capability = findModelCapability(providerId, model)
+    const isCustomOrUnverified = !capability || capability.status === 'unverified'
+
+    if (isCustomOrUnverified && allowUnverified) {
+      // Must have a successful test result
+      const config = getProviderConfig(providerId)
+      if (config?.lastTestStatus !== 'success') {
+        errors.push(
+          `Provider "${providerId}" 的 unverified 模型 "${model}" 需要先通过连接测试。请在"设置 > Provider 配置"中测试连接。（Agent: ${agent.name}）`
+        )
+      }
     }
   }
 
@@ -110,8 +202,8 @@ export function validateProvidersReady(agents: Agent[]): string[] {
 }
 
 /**
- * 清除 Provider 缓存
- * 在 Provider 配置更新时调用
+ * Clear Provider cache.
+ * Called when Provider configuration is updated.
  */
 export function clearProviderCache(): void {
   providerCache.clear()

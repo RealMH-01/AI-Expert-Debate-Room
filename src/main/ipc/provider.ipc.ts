@@ -1,13 +1,13 @@
 /**
  * Provider Settings IPC Handlers
  *
- * 处理 Renderer 发来的 Provider 配置相关请求。
+ * Round 7 Phase 2: Extended with model refresh, enhanced test results, allowUnverifiedModels.
  *
- * 安全规则：
- * 1. 读取配置时绝不返回明文 apiKey，只返回 maskedApiKey / hasApiKey
- * 2. 保存配置时，API Key 只存在 Main Process 侧
- * 3. 日志中不打印 API Key
- * 4. 错误消息中不包含 API Key
+ * Security rules:
+ * 1. Never return plaintext apiKey to Renderer
+ * 2. Only return maskedApiKey / hasApiKey
+ * 3. No API Key in logs
+ * 4. No API Key in error messages
  */
 
 import { ipcMain } from 'electron'
@@ -20,9 +20,10 @@ import {
 } from '../providers/providerSettings'
 import { testProviderConnection } from '../providers/openaiCompatibleProvider'
 import { clearProviderCache } from '../providers/providerFactory'
+import { refreshModelsForProvider, getCachedRemoteModels } from '../providers/modelRefresh'
 
 export function registerProviderIpc(): void {
-  // 获取所有 Provider 配置（安全版）
+  // Get all Provider configs (safe version)
   ipcMain.handle(IPC_CHANNELS.PROVIDER_GET_ALL_CONFIGS, async () => {
     try {
       const configs = getAllProviderConfigsSafe()
@@ -32,7 +33,7 @@ export function registerProviderIpc(): void {
     }
   })
 
-  // 获取单个 Provider 配置（安全版）
+  // Get single Provider config (safe version)
   ipcMain.handle(IPC_CHANNELS.PROVIDER_GET_CONFIG, async (_event, providerId: string) => {
     try {
       const config = getProviderConfigSafe(providerId)
@@ -42,9 +43,7 @@ export function registerProviderIpc(): void {
     }
   })
 
-  // 保存 Provider 配置
-  // Renderer 提交 API Key 到 Main Process，Main Process 负责安全存储
-  // 使用 updateProviderConfig 确保：apiKey 为空字符串时保留旧 Key
+  // Save Provider config - now supports allowUnverifiedModels
   ipcMain.handle(
     IPC_CHANNELS.PROVIDER_SAVE_CONFIG,
     async (
@@ -56,23 +55,21 @@ export function registerProviderIpc(): void {
         defaultHeaders?: Record<string, string>
         timeout?: number
         enabled?: boolean
+        allowUnverifiedModels?: boolean
       }
     ) => {
       try {
-        // 使用 updateProviderConfig 而非 saveProviderConfig
-        // updateProviderConfig 内部会处理：如果 apiKey === '' 且旧配置已有 key，则保留旧 key
         updateProviderConfig(params.providerId, {
           apiKey: params.apiKey,
           baseUrl: params.baseUrl || '',
           defaultHeaders: params.defaultHeaders || {},
           timeout: params.timeout || 60000,
-          enabled: params.enabled !== false
+          enabled: params.enabled !== false,
+          allowUnverifiedModels: params.allowUnverifiedModels ?? false
         })
 
-        // 清除缓存，下次使用时会用新配置
         clearProviderCache()
 
-        // 返回安全版本（不含明文 API Key）
         const safe = getProviderConfigSafe(params.providerId)
         console.log(`[ProviderIPC] Provider "${params.providerId}" 配置已保存`)
         return { success: true, data: safe }
@@ -82,7 +79,7 @@ export function registerProviderIpc(): void {
     }
   )
 
-  // 删除 Provider 配置
+  // Delete Provider config
   ipcMain.handle(IPC_CHANNELS.PROVIDER_DELETE_CONFIG, async (_event, providerId: string) => {
     try {
       deleteProviderConfig(providerId)
@@ -94,12 +91,33 @@ export function registerProviderIpc(): void {
     }
   })
 
-  // 测试 Provider 连接
+  // Test Provider connection - enhanced with ProviderTestResult
   ipcMain.handle(IPC_CHANNELS.PROVIDER_TEST_CONNECTION, async (_event, providerId: string) => {
     try {
       console.log(`[ProviderIPC] 测试连接: ${providerId}`)
       const result = await testProviderConnection(providerId)
       return { success: true, data: result }
+    } catch (error: unknown) {
+      return { success: false, error: (error as Error).message }
+    }
+  })
+
+  // Refresh remote model list for a provider
+  ipcMain.handle(IPC_CHANNELS.PROVIDER_REFRESH_MODELS, async (_event, providerId: string) => {
+    try {
+      console.log(`[ProviderIPC] 刷新模型列表: ${providerId}`)
+      const result = await refreshModelsForProvider(providerId)
+      return { success: true, data: result }
+    } catch (error: unknown) {
+      return { success: false, error: (error as Error).message }
+    }
+  })
+
+  // Get cached remote models for a provider
+  ipcMain.handle(IPC_CHANNELS.PROVIDER_GET_CACHED_MODELS, async (_event, providerId: string) => {
+    try {
+      const models = getCachedRemoteModels(providerId)
+      return { success: true, data: models }
     } catch (error: unknown) {
       return { success: false, error: (error as Error).message }
     }

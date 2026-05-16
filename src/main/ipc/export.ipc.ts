@@ -96,11 +96,36 @@ export function registerExportIpc(): void {
           // 过滤 API Key
           try {
             const configs = JSON.parse(s.value_json || '[]')
-            const safeConfigs = configs.map((c: Record<string, unknown>) => ({
-              ...c,
-              apiKey: c.apiKey ? '****REDACTED****' : '',
-              defaultHeaders: {} // 过滤可能包含 Authorization 的 headers
-            }))
+            const safeConfigs = configs.map((c: Record<string, unknown>) => {
+              // Redact all sensitive fields for all provider auth types
+              const sanitized = { ...c }
+              // Redact API key
+              sanitized.apiKey = c.apiKey ? '****REDACTED****' : ''
+              // Redact defaultHeaders that may contain sensitive auth tokens
+              const headers = c.defaultHeaders as Record<string, string> | undefined
+              if (headers && typeof headers === 'object') {
+                const safeHeaders: Record<string, string> = {}
+                for (const [key, val] of Object.entries(headers)) {
+                  const lk = key.toLowerCase()
+                  if (
+                    lk === 'authorization' ||
+                    lk === 'x-api-key' ||
+                    lk === 'x-goog-api-key' ||
+                    lk.includes('token') ||
+                    lk.includes('secret') ||
+                    lk.includes('key')
+                  ) {
+                    safeHeaders[key] = '****REDACTED****'
+                  } else {
+                    safeHeaders[key] = val
+                  }
+                }
+                sanitized.defaultHeaders = safeHeaders
+              } else {
+                sanitized.defaultHeaders = {}
+              }
+              return sanitized
+            })
             return { ...s, value_json: JSON.stringify(safeConfigs) }
           } catch {
             return { ...s, value_json: '[]' }

@@ -27,6 +27,14 @@ export interface ProviderConfig {
   defaultHeaders: Record<string, string>
   timeout: number
   enabled: boolean
+  /** Allow unverified / custom model IDs for this provider */
+  allowUnverifiedModels: boolean
+  /** Last connection test status */
+  lastTestStatus?: 'success' | 'fail' | null
+  /** Last connection test error message */
+  lastTestError?: string | null
+  /** Last connection test timestamp (ISO) */
+  lastTestAt?: string | null
 }
 
 /**
@@ -40,6 +48,14 @@ export interface ProviderConfigSafe {
   baseUrl: string
   timeout: number
   enabled: boolean
+  /** Allow unverified / custom model IDs for this provider */
+  allowUnverifiedModels: boolean
+  /** Last connection test status */
+  lastTestStatus?: 'success' | 'fail' | null
+  /** Last connection test error message */
+  lastTestError?: string | null
+  /** Last connection test timestamp (ISO) */
+  lastTestAt?: string | null
 }
 
 /** settings 表中 provider 配置的 key 前缀 */
@@ -106,7 +122,11 @@ export function getAllProviderConfigsSafe(): ProviderConfigSafe[] {
     maskedApiKey: maskApiKey(c.apiKey),
     baseUrl: c.baseUrl,
     timeout: c.timeout,
-    enabled: c.enabled
+    enabled: c.enabled,
+    allowUnverifiedModels: c.allowUnverifiedModels ?? false,
+    lastTestStatus: c.lastTestStatus ?? null,
+    lastTestError: c.lastTestError ?? null,
+    lastTestAt: c.lastTestAt ?? null
   }))
 }
 
@@ -122,7 +142,11 @@ export function getProviderConfigSafe(providerId: string): ProviderConfigSafe | 
     maskedApiKey: maskApiKey(config.apiKey),
     baseUrl: config.baseUrl,
     timeout: config.timeout,
-    enabled: config.enabled
+    enabled: config.enabled,
+    allowUnverifiedModels: config.allowUnverifiedModels ?? false,
+    lastTestStatus: config.lastTestStatus ?? null,
+    lastTestError: config.lastTestError ?? null,
+    lastTestAt: config.lastTestAt ?? null
   }
 }
 
@@ -164,7 +188,11 @@ export function updateProviderConfig(
       baseUrl: updates.baseUrl ?? '',
       defaultHeaders: updates.defaultHeaders ?? {},
       timeout: updates.timeout ?? 60000,
-      enabled: updates.enabled ?? true
+      enabled: updates.enabled ?? true,
+      allowUnverifiedModels: updates.allowUnverifiedModels ?? false,
+      lastTestStatus: updates.lastTestStatus ?? null,
+      lastTestError: updates.lastTestError ?? null,
+      lastTestAt: updates.lastTestAt ?? null
     }
     saveProviderConfig(newConfig)
     return
@@ -204,4 +232,33 @@ export function isProviderConfigured(providerId: string): boolean {
   if (providerId === 'mock') return true // Mock 永远可用
   const config = getProviderConfig(providerId)
   return !!config && config.enabled && !!config.apiKey && config.apiKey.length > 0
+}
+
+/**
+ * Persist test connection result into provider config
+ */
+export function updateTestResult(
+  providerId: string,
+  status: 'success' | 'fail',
+  errorMessage?: string
+): void {
+  const existing = getProviderConfig(providerId)
+  if (!existing) return
+
+  const updated: ProviderConfig = {
+    ...existing,
+    lastTestStatus: status,
+    lastTestError: status === 'fail' ? (errorMessage || 'Unknown error') : null,
+    lastTestAt: new Date().toISOString()
+  }
+  saveProviderConfig(updated)
+}
+
+/**
+ * Check if a provider allows unverified models
+ */
+export function getProviderAllowUnverified(providerId: string): boolean {
+  if (providerId === 'mock') return true
+  const config = getProviderConfig(providerId)
+  return config?.allowUnverifiedModels ?? false
 }

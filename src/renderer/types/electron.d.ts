@@ -112,6 +112,10 @@ export interface ElectronAPI {
     baseUrl: string
     timeout: number
     enabled: boolean
+    allowUnverifiedModels: boolean
+    lastTestStatus?: 'success' | 'fail' | null
+    lastTestError?: string | null
+    lastTestAt?: string | null
   }>>>
   providerGetConfig: (providerId: string) => Promise<IpcResponse<{
     providerId: string
@@ -120,6 +124,10 @@ export interface ElectronAPI {
     baseUrl: string
     timeout: number
     enabled: boolean
+    allowUnverifiedModels: boolean
+    lastTestStatus?: 'success' | 'fail' | null
+    lastTestError?: string | null
+    lastTestAt?: string | null
   } | null>>
   providerSaveConfig: (params: {
     providerId: string
@@ -128,13 +136,31 @@ export interface ElectronAPI {
     defaultHeaders?: Record<string, string>
     timeout?: number
     enabled?: boolean
+    allowUnverifiedModels?: boolean
   }) => Promise<IpcResponse<unknown>>
   providerDeleteConfig: (providerId: string) => Promise<IpcResponse<unknown>>
   providerTestConnection: (providerId: string) => Promise<IpcResponse<{
     success: boolean
     message: string
     latencyMs?: number
+    errorType?: string
+    httpStatus?: number
+    testedAt: string
   }>>
+  providerRefreshModels: (providerId: string) => Promise<IpcResponse<{
+    providerId: string
+    success: boolean
+    models: Array<{ apiModelId: string; displayName?: string }>
+    errorMessage?: string
+    fetchedAt: string
+  }>>
+  providerGetCachedModels: (providerId: string) => Promise<IpcResponse<Array<{
+    apiModelId: string
+    displayName: string
+    status: string
+    source: string
+    fetchedAt: string
+  }>>>
 }
 
 declare global {
