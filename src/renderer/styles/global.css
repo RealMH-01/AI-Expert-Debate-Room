@@ -1,0 +1,231 @@
+/**
+ * 全局样式
+ *
+ * 基础布局样式，不做复杂 UI 美化（本轮禁止事项）
+ */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --color-bg: #1a1a2e;
+  --color-bg-secondary: #16213e;
+  --color-bg-panel: #0f3460;
+  --color-accent: #e94560;
+  --color-text: #eaeaea;
+  --color-text-muted: #a0a0b0;
+  --color-border: #2a2a4a;
+  --color-success: #4caf50;
+  --color-error: #f44336;
+  --color-warning: #ff9800;
+}
+
+html, body, #root {
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  overflow: hidden;
+}
+
+/* 应用容器 */
+.app-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* 顶部标题栏 */
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  background-color: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.app-header h1 {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 1px;
+}
+
+.app-header .header-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  -webkit-app-region: no-drag;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.status-dot.ok {
+  background-color: var(--color-success);
+}
+
+.status-dot.error {
+  background-color: var(--color-error);
+}
+
+.status-dot.loading {
+  background-color: var(--color-warning);
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* 主内容区：三栏布局 */
+.main-content {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* 左侧面板 */
+.panel-left {
+  width: 240px;
+  min-width: 200px;
+  background-color: var(--color-bg-secondary);
+  border-right: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+/* 中间主区域 */
+.panel-center {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+/* 右侧面板 */
+.panel-right {
+  width: 280px;
+  min-width: 240px;
+  background-color: var(--color-bg-secondary);
+  border-left: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+/* 面板通用标题 */
+.panel-title {
+  padding: 16px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+/* 面板内容 */
+.panel-body {
+  padding: 16px;
+  flex: 1;
+}
+
+/* 占位文字 */
+.placeholder-text {
+  color: var(--color-text-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* 信息列表 */
+.info-list {
+  list-style: none;
+  padding: 0;
+}
+
+.info-list li {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.info-list li:last-child {
+  border-bottom: none;
+}
+
+.info-label {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  display: block;
+  margin-bottom: 2px;
+}
+
+.info-value {
+  color: var(--color-text);
+  word-break: break-all;
+}
+
+/* 底部状态栏 */
+.app-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 20px;
+  background-color: var(--color-bg-secondary);
+  border-top: 1px solid var(--color-border);
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+/* 中间欢迎区域 */
+.welcome-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 16px;
+  text-align: center;
+  padding: 40px;
+}
+
+.welcome-section h2 {
+  font-size: 24px;
+  font-weight: 300;
+  color: var(--color-text);
+}
+
+.welcome-section p {
+  color: var(--color-text-muted);
+  font-size: 14px;
+  max-width: 400px;
+  line-height: 1.8;
+}
+
+.db-path-display {
+  background-color: var(--color-bg);
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-family: 'Fira Code', 'Consolas', monospace;
+  font-size: 12px;
+  color: var(--color-accent);
+  max-width: 100%;
+  word-break: break-all;
+  margin-top: 8px;
+}
