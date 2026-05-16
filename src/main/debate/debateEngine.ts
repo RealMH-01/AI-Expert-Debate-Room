@@ -306,6 +306,10 @@ async function runInitialAnswers(
   session = sessionRepo.updateSessionPhase(session.id, phase)!
   callbacks.onPhaseChange(phase, session)
 
+  // 关键：首轮独立回答——所有专家使用同一份首轮前的 transcript 快照，
+  // 避免第 1 位专家的回答污染第 2 位专家的生成输入。
+  const initialVisibleTranscript = [...transcript]
+
   for (const expert of experts) {
     const otherExperts = experts.filter((e) => e.id !== expert.id)
 
@@ -315,7 +319,7 @@ async function runInitialAnswers(
       agent: expert,
       userQuestion,
       roundIndex: 0,
-      visibleTranscript: transcript,
+      visibleTranscript: initialVisibleTranscript,
       otherExperts,
       rules,
       roomName
@@ -334,6 +338,7 @@ async function runInitialAnswers(
       structuredJson: output.structuredJson ? JSON.stringify(output.structuredJson) : null
     })
 
+    // 追加到最终 transcript（供后续辩论轮使用），但不影响本轮其他专家
     transcript.push({
       speakerName: expert.name,
       speakerRole: 'expert',
