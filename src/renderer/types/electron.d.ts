@@ -4,7 +4,7 @@
  * 声明 window.api 的类型，使渲染进程可以安全调用 IPC API
  */
 
-import type { Room, Agent, RulesConfig } from '../../shared/types'
+import type { Room, Agent, RulesConfig, Session, Message, ValidationResult } from '../../shared/types'
 
 /** 健康检查结果 */
 export interface HealthCheckResult {
@@ -66,6 +66,20 @@ export interface ElectronAPI {
   }) => Promise<IpcResponse<Agent>>
   agentDelete: (id: string) => Promise<IpcResponse<boolean>>
   agentGetById: (id: string) => Promise<IpcResponse<Agent>>
+
+  // Debate / Session
+  debateValidate: (roomId: string) => Promise<IpcResponse<ValidationResult>>
+  debateStart: (params: { roomId: string; userQuestion: string }) => Promise<IpcResponse<{ started: boolean; roomId: string }>>
+  debateIsRunning: (roomId: string) => Promise<IpcResponse<boolean>>
+  sessionGetById: (sessionId: string) => Promise<IpcResponse<Session>>
+  sessionGetByRoom: (roomId: string) => Promise<IpcResponse<Session[]>>
+  messageGetBySession: (sessionId: string) => Promise<IpcResponse<Message[]>>
+
+  // Debate 事件监听（返回 cleanup 函数）
+  onDebateMessage: (callback: (message: Message) => void) => () => void
+  onDebatePhaseChange: (callback: (data: { phase: string; session: Session }) => void) => () => void
+  onDebateSessionFinished: (callback: (session: Session) => void) => () => void
+  onDebateError: (callback: (error: string) => void) => () => void
 }
 
 declare global {

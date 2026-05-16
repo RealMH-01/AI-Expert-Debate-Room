@@ -16,6 +16,7 @@ import { runMigrations } from './db/migrations'
 import { registerHealthIpc } from './ipc/health.ipc'
 import { registerRoomIpc } from './ipc/room.ipc'
 import { registerAgentIpc } from './ipc/agent.ipc'
+import { registerDebateIpc } from './ipc/debate.ipc'
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -75,6 +76,7 @@ app.whenReady().then(() => {
   registerHealthIpc()
   registerRoomIpc()
   registerAgentIpc()
+  registerDebateIpc()
 
   // 创建主窗口
   createWindow()

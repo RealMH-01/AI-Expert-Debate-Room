@@ -129,6 +129,56 @@ export interface ProviderInfo {
   models: ModelInfo[]
 }
 
+// ===== Session 类型 =====
+
+export type SessionStatus = 'preparing' | 'running' | 'finished' | 'failed'
+
+export type DebatePhase =
+  | 'moderator_opening'
+  | 'expert_initial'
+  | 'debate_round'
+  | 'moderator_round_summary'
+  | 'moderator_final_summary'
+
+export interface Session {
+  id: string
+  room_id: string
+  title: string
+  user_question: string | null
+  status: SessionStatus
+  current_phase: DebatePhase | null
+  final_summary: string | null
+  created_at: string
+  updated_at: string
+}
+
+// ===== Message 类型 =====
+
+export interface Message {
+  id: string
+  session_id: string
+  round_index: number
+  phase: DebatePhase
+  speaker_id: string | null
+  speaker_name: string | null
+  speaker_role: string | null
+  content: string
+  structured_json: string | null
+  created_at: string
+}
+
+// ===== Debate Engine 类型 =====
+
+export interface DebateStartParams {
+  roomId: string
+  userQuestion: string
+}
+
+export interface DebateSessionState {
+  session: Session
+  messages: Message[]
+}
+
 // ===== 配置校验 =====
 
 export interface ValidationResult {
