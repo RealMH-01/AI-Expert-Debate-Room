@@ -35,7 +35,39 @@ const api = {
   agentUpdateExpert: (params: { id: string; data: unknown }) =>
     ipcRenderer.invoke('agent:update-expert', params),
   agentDelete: (id: string) => ipcRenderer.invoke('agent:delete', id),
-  agentGetById: (id: string) => ipcRenderer.invoke('agent:get-by-id', id)
+  agentGetById: (id: string) => ipcRenderer.invoke('agent:get-by-id', id),
+
+  // ===== Debate / Session =====
+  debateValidate: (roomId: string) => ipcRenderer.invoke('debate:validate', roomId),
+  debateStart: (params: { roomId: string; userQuestion: string }) =>
+    ipcRenderer.invoke('debate:start', params),
+  debateIsRunning: (roomId: string) => ipcRenderer.invoke('debate:is-running', roomId),
+  sessionGetById: (sessionId: string) => ipcRenderer.invoke('session:get-by-id', sessionId),
+  sessionGetByRoom: (roomId: string) => ipcRenderer.invoke('session:get-by-room', roomId),
+  messageGetBySession: (sessionId: string) =>
+    ipcRenderer.invoke('message:get-by-session', sessionId),
+
+  // ===== Debate 事件监听 =====
+  onDebateMessage: (callback: (message: unknown) => void) => {
+    const handler = (_event: unknown, data: unknown) => callback(data)
+    ipcRenderer.on('debate:event:new-message', handler)
+    return () => ipcRenderer.removeListener('debate:event:new-message', handler)
+  },
+  onDebatePhaseChange: (callback: (data: unknown) => void) => {
+    const handler = (_event: unknown, data: unknown) => callback(data)
+    ipcRenderer.on('debate:event:phase-change', handler)
+    return () => ipcRenderer.removeListener('debate:event:phase-change', handler)
+  },
+  onDebateSessionFinished: (callback: (session: unknown) => void) => {
+    const handler = (_event: unknown, data: unknown) => callback(data)
+    ipcRenderer.on('debate:event:session-finished', handler)
+    return () => ipcRenderer.removeListener('debate:event:session-finished', handler)
+  },
+  onDebateError: (callback: (error: unknown) => void) => {
+    const handler = (_event: unknown, data: unknown) => callback(data)
+    ipcRenderer.on('debate:event:error', handler)
+    return () => ipcRenderer.removeListener('debate:event:error', handler)
+  }
 }
 
 export type ElectronAPI = typeof api

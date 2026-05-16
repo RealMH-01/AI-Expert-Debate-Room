@@ -36,7 +36,21 @@ export const IPC_CHANNELS = {
   /** 删除 Agent */
   AGENT_DELETE: 'agent:delete',
   /** 获取单个 Agent */
-  AGENT_GET_BY_ID: 'agent:get-by-id'
+  AGENT_GET_BY_ID: 'agent:get-by-id',
+
+  // ===== Debate / Session 相关 =====
+  /** 校验会议室能否启动辩论 */
+  DEBATE_VALIDATE: 'debate:validate',
+  /** 启动辩论 */
+  DEBATE_START: 'debate:start',
+  /** 获取辩论运行状态 */
+  DEBATE_IS_RUNNING: 'debate:is-running',
+  /** 获取会议信息 */
+  SESSION_GET_BY_ID: 'session:get-by-id',
+  /** 获取会议室的所有会议 */
+  SESSION_GET_BY_ROOM: 'session:get-by-room',
+  /** 获取会议的所有消息 */
+  MESSAGE_GET_BY_SESSION: 'message:get-by-session'
 } as const
 
 /** IPC 通道名类型 */
