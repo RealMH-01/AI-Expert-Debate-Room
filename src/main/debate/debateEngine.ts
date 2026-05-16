@@ -30,7 +30,7 @@ import type {
 } from '../../shared/types'
 import { DEFAULT_RULES_CONFIG } from '../../shared/types'
 import type { DebateModelProvider, TranscriptEntry, DebateGenerateInput } from '../providers/base'
-import { getMockProvider } from '../providers/mockProvider'
+import { getProviderForAgent, validateProvidersReady } from '../providers/providerFactory'
 import * as sessionRepo from '../db/repositories/sessionRepository'
 import * as messageRepo from '../db/repositories/messageRepository'
 import * as agentRepo from '../db/repositories/agentRepository'
@@ -70,7 +70,7 @@ const runningSessions = new Set<string>()
  */
 interface PendingSettlementInfo {
   session: Session
-  provider: DebateModelProvider
+  moderatorProvider: DebateModelProvider
   moderator: Agent
   experts: Agent[]
   userQuestion: string
@@ -169,6 +169,14 @@ export async function startDebate(
   const moderator = agentRepo.getModerator(roomId)!
   const experts = agentRepo.getExperts(roomId).filter((e) => e.status === 'active')
 
+  // === 校验真实 Provider 的 API Key 是否已配置 ===
+  const allAgents = [moderator, ...experts]
+  const providerErrors = validateProvidersReady(allAgents)
+  if (providerErrors.length > 0) {
+    callbacks.onError(providerErrors.join('\n'))
+    return null
+  }
+
   // 解析规则
   let rules: RulesConfig = DEFAULT_RULES_CONFIG
   try {
@@ -181,8 +189,10 @@ export async function startDebate(
   // 强制最少 3 轮
   const minDebateRounds = Math.max(3, rules.min_debate_rounds)
 
-  // 获取 Provider - 本轮统一使用 MockProvider
-  const provider: DebateModelProvider = getMockProvider()
+  // Provider 路由：不再使用全局单一 Provider
+  // 每个 agent 根据自身配置使用对应 Provider（由 getProviderForAgent 处理）
+  // 主理人的 Provider
+  const moderatorProvider: DebateModelProvider = getProviderForAgent(moderator)
 
   // 创建 Session
   const title = `${room.name} - ${userQuestion.slice(0, 30)}${userQuestion.length > 30 ? '...' : ''}`
@@ -205,7 +215,7 @@ export async function startDebate(
     // === Step 1: 主理人开场 ===
     session = await runModeratorOpening(
       session,
-      provider,
+      moderatorProvider,
       moderator,
       experts,
       userQuestion,
@@ -218,7 +228,6 @@ export async function startDebate(
     // === Step 2: 专家首轮独立回答 ===
     session = await runInitialAnswers(
       session,
-      provider,
       moderator,
       experts,
       userQuestion,
@@ -232,7 +241,7 @@ export async function startDebate(
     for (let round = 1; round <= minDebateRounds; round++) {
       session = await runDebateRound(
         session,
-        provider,
+        moderatorProvider,
         moderator,
         experts,
         userQuestion,
@@ -247,7 +256,6 @@ export async function startDebate(
     // === Step 4: 投票阶段 ===
     const votingResult = await runVotingPhase(
       session,
-      provider,
       experts,
       userQuestion,
       rules,
@@ -279,7 +287,7 @@ export async function startDebate(
       // 存储 pending session info 以便后续继续
       pendingSettlements.set(session.id, {
         session,
-        provider,
+        moderatorProvider,
         moderator,
         experts,
         userQuestion,
@@ -300,7 +308,7 @@ export async function startDebate(
     // === Step 6: 主理人最终总结 ===
     session = await runFinalSummary(
       session,
-      provider,
+      moderatorProvider,
       moderator,
       experts,
       userQuestion,
@@ -382,7 +390,6 @@ async function runModeratorOpening(
 
 async function runInitialAnswers(
   session: Session,
-  provider: DebateModelProvider,
   moderator: Agent,
   experts: Agent[],
   userQuestion: string,
@@ -414,29 +421,50 @@ async function runInitialAnswers(
       roomName
     }
 
-    const output = await provider.generateExpertInitialAnswer(input)
+    // 使用该专家自身配置的 Provider
+    const expertProvider = getProviderForAgent(expert)
 
-    const message = messageRepo.insertMessage({
-      sessionId: session.id,
-      roundIndex: 0,
-      phase,
-      speakerId: expert.id,
-      speakerName: expert.name,
-      speakerRole: 'expert',
-      content: output.content,
-      structuredJson: output.structuredJson ? JSON.stringify(output.structuredJson) : null
-    })
+    try {
+      const output = await expertProvider.generateExpertInitialAnswer(input)
 
-    // 追加到最终 transcript（供后续辩论轮使用），但不影响本轮其他专家
-    transcript.push({
-      speakerName: expert.name,
-      speakerRole: 'expert',
-      phase,
-      roundIndex: 0,
-      content: output.content
-    })
+      const message = messageRepo.insertMessage({
+        sessionId: session.id,
+        roundIndex: 0,
+        phase,
+        speakerId: expert.id,
+        speakerName: expert.name,
+        speakerRole: 'expert',
+        content: output.content,
+        structuredJson: output.structuredJson ? JSON.stringify(output.structuredJson) : null
+      })
 
-    callbacks.onMessage(message)
+      // 追加到最终 transcript（供后续辩论轮使用），但不影响本轮其他专家
+      transcript.push({
+        speakerName: expert.name,
+        speakerRole: 'expert',
+        phase,
+        roundIndex: 0,
+        content: output.content
+      })
+
+      callbacks.onMessage(message)
+    } catch (error: unknown) {
+      // 单个专家失败：记录失败消息，继续其他专家
+      const errorMsg = error instanceof Error ? error.message : '未知错误'
+      console.error(`[DebateEngine] 专家 "${expert.name}" 首轮回答失败:`, errorMsg)
+
+      const failMessage = messageRepo.insertMessage({
+        sessionId: session.id,
+        roundIndex: 0,
+        phase,
+        speakerId: null,
+        speakerName: '系统',
+        speakerRole: 'system',
+        content: `[发言失败] ${expert.name} 首轮回答生成失败: ${errorMsg}`,
+        structuredJson: JSON.stringify({ type: 'expert_call_failed', agentId: expert.id, error: errorMsg })
+      })
+      callbacks.onMessage(failMessage)
+    }
   }
 
   return session
@@ -444,7 +472,7 @@ async function runInitialAnswers(
 
 async function runDebateRound(
   session: Session,
-  provider: DebateModelProvider,
+  moderatorProvider: DebateModelProvider,
   moderator: Agent,
   experts: Agent[],
   userQuestion: string,
@@ -474,28 +502,49 @@ async function runDebateRound(
       roomName
     }
 
-    const output = await provider.generateExpertDebateTurn(input)
+    // 使用该专家自身配置的 Provider
+    const expertProvider = getProviderForAgent(expert)
 
-    const message = messageRepo.insertMessage({
-      sessionId: session.id,
-      roundIndex,
-      phase: debatePhase,
-      speakerId: expert.id,
-      speakerName: expert.name,
-      speakerRole: 'expert',
-      content: output.content,
-      structuredJson: output.structuredJson ? JSON.stringify(output.structuredJson) : null
-    })
+    try {
+      const output = await expertProvider.generateExpertDebateTurn(input)
 
-    transcript.push({
-      speakerName: expert.name,
-      speakerRole: 'expert',
-      phase: debatePhase,
-      roundIndex,
-      content: output.content
-    })
+      const message = messageRepo.insertMessage({
+        sessionId: session.id,
+        roundIndex,
+        phase: debatePhase,
+        speakerId: expert.id,
+        speakerName: expert.name,
+        speakerRole: 'expert',
+        content: output.content,
+        structuredJson: output.structuredJson ? JSON.stringify(output.structuredJson) : null
+      })
 
-    callbacks.onMessage(message)
+      transcript.push({
+        speakerName: expert.name,
+        speakerRole: 'expert',
+        phase: debatePhase,
+        roundIndex,
+        content: output.content
+      })
+
+      callbacks.onMessage(message)
+    } catch (error: unknown) {
+      // 单个专家失败：记录失败消息，继续其他专家
+      const errorMsg = error instanceof Error ? error.message : '未知错误'
+      console.error(`[DebateEngine] 专家 "${expert.name}" 第 ${roundIndex} 轮发言失败:`, errorMsg)
+
+      const failMessage = messageRepo.insertMessage({
+        sessionId: session.id,
+        roundIndex,
+        phase: debatePhase,
+        speakerId: null,
+        speakerName: '系统',
+        speakerRole: 'system',
+        content: `[发言失败] ${expert.name} 第 ${roundIndex} 轮发言生成失败: ${errorMsg}`,
+        structuredJson: JSON.stringify({ type: 'expert_call_failed', agentId: expert.id, round: roundIndex, error: errorMsg })
+      })
+      callbacks.onMessage(failMessage)
+    }
   }
 
   // 主理人轮次总结
@@ -515,7 +564,7 @@ async function runDebateRound(
     roomName
   }
 
-  const summaryOutput = await provider.generateModeratorRoundSummary(summaryInput)
+  const summaryOutput = await moderatorProvider.generateModeratorRoundSummary(summaryInput)
 
   const summaryMessage = messageRepo.insertMessage({
     sessionId: session.id,
@@ -654,7 +703,6 @@ export function getPendingSettlementResult(sessionId: string): SettlementResult 
  */
 async function runVotingPhase(
   session: Session,
-  provider: DebateModelProvider,
   experts: Agent[],
   userQuestion: string,
   rules: RulesConfig,
@@ -729,12 +777,34 @@ async function runVotingPhase(
 
   // 匿名同时投票：每个专家独立生成投票，不传入其他专家的投票结果
   for (const voter of aliveExperts) {
-    const voteOutput = await provider.generateExpertVote({
-      voter,
-      aliveExperts,
-      visibleTranscript: transcript,
-      userQuestion
-    })
+    const voterProvider = getProviderForAgent(voter)
+
+    let voteOutput: { rawJson: string }
+    try {
+      voteOutput = await voterProvider.generateExpertVote({
+        voter,
+        aliveExperts,
+        visibleTranscript: transcript,
+        userQuestion
+      })
+    } catch (error: unknown) {
+      // 投票生成失败：记录系统消息，跳过此专家
+      const errorMsg = error instanceof Error ? error.message : '未知错误'
+      console.error(`[DebateEngine] 专家 "${voter.name}" 投票生成失败:`, errorMsg)
+      hasInvalidVotes = true
+      const failMsg = messageRepo.insertMessage({
+        sessionId: session.id,
+        roundIndex: totalRounds,
+        phase: 'voting',
+        speakerId: null,
+        speakerName: '系统',
+        speakerRole: 'system',
+        content: `[投票失败] ${voter.name} 的投票生成过程出错: ${errorMsg}。该专家本轮投票作废。`,
+        structuredJson: JSON.stringify({ type: 'vote_generate_failed', voterId: voter.id, error: errorMsg })
+      })
+      callbacks.onMessage(failMsg)
+      continue
+    }
 
     // 使用 VoteValidator 进行客观校验
     const validationResult = validateBallot(voteOutput.rawJson, aliveExpertIds)
@@ -953,7 +1023,7 @@ async function applySettlementWithContext(
     session,
     settlementRecordId,
     settlementResult,
-    provider,
+    moderatorProvider,
     moderator,
     experts,
     userQuestion,
@@ -1048,7 +1118,7 @@ async function applySettlementWithContext(
       .filter((e) => e.status === 'active')
     const finalSession = await runFinalSummary(
       session,
-      provider,
+      moderatorProvider,
       moderator,
       updatedExperts.length > 0 ? updatedExperts : experts,
       userQuestion,
@@ -1198,7 +1268,7 @@ async function vetoSettlementWithContext(
   const {
     session,
     settlementRecordId,
-    provider,
+    moderatorProvider,
     moderator,
     experts,
     userQuestion,
@@ -1247,7 +1317,7 @@ async function vetoSettlementWithContext(
     // 继续最终总结
     const finalSession = await runFinalSummary(
       session,
-      provider,
+      moderatorProvider,
       moderator,
       experts,
       userQuestion,

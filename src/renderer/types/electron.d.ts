@@ -103,6 +103,38 @@ export interface ElectronAPI {
   exportMarkdown: (sessionId: string) => Promise<IpcResponse<{ canceled?: boolean; filePath?: string; size?: number }>>
   exportGetDbPath: () => Promise<IpcResponse<string>>
   exportAllDataJson: () => Promise<IpcResponse<{ canceled?: boolean; filePath?: string; size?: number }>>
+
+  // Provider Settings
+  providerGetAllConfigs: () => Promise<IpcResponse<Array<{
+    providerId: string
+    hasApiKey: boolean
+    maskedApiKey: string
+    baseUrl: string
+    timeout: number
+    enabled: boolean
+  }>>>
+  providerGetConfig: (providerId: string) => Promise<IpcResponse<{
+    providerId: string
+    hasApiKey: boolean
+    maskedApiKey: string
+    baseUrl: string
+    timeout: number
+    enabled: boolean
+  } | null>>
+  providerSaveConfig: (params: {
+    providerId: string
+    apiKey: string
+    baseUrl?: string
+    defaultHeaders?: Record<string, string>
+    timeout?: number
+    enabled?: boolean
+  }) => Promise<IpcResponse<unknown>>
+  providerDeleteConfig: (providerId: string) => Promise<IpcResponse<unknown>>
+  providerTestConnection: (providerId: string) => Promise<IpcResponse<{
+    success: boolean
+    message: string
+    latencyMs?: number
+  }>>
 }
 
 declare global {

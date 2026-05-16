@@ -51,13 +51,55 @@ export const MODEL_CATALOG: ModelInfo[] = [
   // === openai ===
   {
     provider: 'openai',
-    model: 'gpt-5.5',
-    displayName: 'GPT-5.5',
+    model: 'gpt-4o',
+    displayName: 'GPT-4o',
+    supportsThinking: false,
+    supportsStreaming: true,
+    supportsJson: true,
+    supportsVision: true,
+    notes: 'OpenAI GPT-4o，多模态旗舰模型'
+  },
+  {
+    provider: 'openai',
+    model: 'gpt-4o-mini',
+    displayName: 'GPT-4o Mini',
+    supportsThinking: false,
+    supportsStreaming: true,
+    supportsJson: true,
+    supportsVision: true,
+    notes: 'OpenAI GPT-4o Mini，性价比高'
+  },
+  {
+    provider: 'openai',
+    model: 'o1',
+    displayName: 'o1',
     supportsThinking: true,
     supportsStreaming: true,
     supportsJson: true,
     supportsVision: true,
-    notes: 'OpenAI GPT-5.5，支持深度推理'
+    notes: 'OpenAI o1，深度推理模型'
+  },
+  {
+    provider: 'openai',
+    model: 'o3-mini',
+    displayName: 'o3-mini',
+    supportsThinking: true,
+    supportsStreaming: true,
+    supportsJson: true,
+    supportsVision: false,
+    notes: 'OpenAI o3-mini，高效推理模型'
+  },
+
+  // === openai_compatible (自定义兼容端点) ===
+  {
+    provider: 'openai_compatible',
+    model: 'custom',
+    displayName: '自定义模型',
+    supportsThinking: false,
+    supportsStreaming: true,
+    supportsJson: true,
+    supportsVision: false,
+    notes: 'OpenAI 兼容 API 的自定义模型，需在 Provider 设置中配置 baseUrl'
   },
 
   // === anthropic ===
@@ -87,13 +129,23 @@ export const MODEL_CATALOG: ModelInfo[] = [
   // === deepseek ===
   {
     provider: 'deepseek',
-    model: 'deepseek-v4-pro',
-    displayName: 'DeepSeek V4 Pro',
+    model: 'deepseek-chat',
+    displayName: 'DeepSeek Chat',
+    supportsThinking: false,
+    supportsStreaming: true,
+    supportsJson: true,
+    supportsVision: false,
+    notes: 'DeepSeek Chat，通用对话模型'
+  },
+  {
+    provider: 'deepseek',
+    model: 'deepseek-reasoner',
+    displayName: 'DeepSeek Reasoner',
     supportsThinking: true,
     supportsStreaming: true,
     supportsJson: true,
     supportsVision: false,
-    notes: 'DeepSeek V4 Pro Thinking，强推理能力'
+    notes: 'DeepSeek Reasoner，深度推理模型'
   },
 
   // === qwen ===
@@ -144,6 +196,11 @@ export const PROVIDERS: ProviderInfo[] = [
     id: 'openai',
     displayName: 'OpenAI',
     models: MODEL_CATALOG.filter((m) => m.provider === 'openai')
+  },
+  {
+    id: 'openai_compatible',
+    displayName: 'OpenAI 兼容',
+    models: MODEL_CATALOG.filter((m) => m.provider === 'openai_compatible')
   },
   {
     id: 'anthropic',

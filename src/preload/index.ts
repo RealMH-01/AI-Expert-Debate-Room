@@ -112,7 +112,25 @@ const api = {
   exportGetDbPath: () =>
     ipcRenderer.invoke('export:get-db-path'),
   exportAllDataJson: () =>
-    ipcRenderer.invoke('export:all-data-json')
+    ipcRenderer.invoke('export:all-data-json'),
+
+  // ===== Provider Settings =====
+  providerGetAllConfigs: () =>
+    ipcRenderer.invoke('provider:get-all-configs'),
+  providerGetConfig: (providerId: string) =>
+    ipcRenderer.invoke('provider:get-config', providerId),
+  providerSaveConfig: (params: {
+    providerId: string
+    apiKey: string
+    baseUrl?: string
+    defaultHeaders?: Record<string, string>
+    timeout?: number
+    enabled?: boolean
+  }) => ipcRenderer.invoke('provider:save-config', params),
+  providerDeleteConfig: (providerId: string) =>
+    ipcRenderer.invoke('provider:delete-config', providerId),
+  providerTestConnection: (providerId: string) =>
+    ipcRenderer.invoke('provider:test-connection', providerId)
 }
 
 export type ElectronAPI = typeof api

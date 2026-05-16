@@ -11,6 +11,7 @@ import React, { useEffect, useState, useCallback } from 'react'
 import LeftPanel from './components/LeftPanel'
 import CenterPanel from './components/CenterPanel'
 import RightPanel from './components/RightPanel'
+import ProviderSettings from './components/ProviderSettings'
 import type { Room, Agent, RulesConfig } from '../shared/types'
 
 const App: React.FC = () => {
@@ -20,6 +21,7 @@ const App: React.FC = () => {
   const [experts, setExperts] = useState<Agent[]>([])
   const [loading, setLoading] = useState(true)
   const [dbReady, setDbReady] = useState(false)
+  const [viewMode, setViewMode] = useState<'main' | 'settings'>('main')
 
   // 初始化：检查数据库 + 加载会议室
   useEffect(() => {
@@ -174,38 +176,58 @@ const App: React.FC = () => {
       {/* 顶部标题栏 */}
       <header className="app-header">
         <h1>AI 专家修罗场会议室</h1>
-        <div className="header-status">
-          <span className="status-dot ok" />
-          <span>系统就绪</span>
+        <div className="header-actions">
+          <button
+            className={`btn btn-small ${viewMode === 'main' ? 'btn-primary' : 'btn-ghost'}`}
+            onClick={() => setViewMode('main')}
+          >
+            会议室
+          </button>
+          <button
+            className={`btn btn-small ${viewMode === 'settings' ? 'btn-primary' : 'btn-ghost'}`}
+            onClick={() => setViewMode('settings')}
+          >
+            设置
+          </button>
+          <div className="header-status">
+            <span className="status-dot ok" />
+            <span>系统就绪</span>
+          </div>
         </div>
       </header>
 
-      {/* 三栏主内容 */}
-      <div className="main-content">
-        <LeftPanel
-          rooms={rooms}
-          selectedRoomId={selectedRoomId}
-          onSelectRoom={setSelectedRoomId}
-          onCreateRoom={handleCreateRoom}
-          onDeleteRoom={handleDeleteRoom}
-        />
-        <CenterPanel
-          room={selectedRoom}
-          moderator={moderator}
-          experts={experts}
-          onUpdateRoom={handleUpdateRoom}
-          onUpsertModerator={handleUpsertModerator}
-          onCreateExpert={handleCreateExpert}
-          onUpdateExpert={handleUpdateExpert}
-          onDeleteExpert={handleDeleteExpert}
-          onUpdateRules={handleUpdateRules}
-        />
-        <RightPanel
-          room={selectedRoom}
-          moderator={moderator}
-          experts={experts}
-        />
-      </div>
+      {/* 三栏主内容 / 设置页 */}
+      {viewMode === 'settings' ? (
+        <div className="main-content settings-view">
+          <ProviderSettings />
+        </div>
+      ) : (
+        <div className="main-content">
+          <LeftPanel
+            rooms={rooms}
+            selectedRoomId={selectedRoomId}
+            onSelectRoom={setSelectedRoomId}
+            onCreateRoom={handleCreateRoom}
+            onDeleteRoom={handleDeleteRoom}
+          />
+          <CenterPanel
+            room={selectedRoom}
+            moderator={moderator}
+            experts={experts}
+            onUpdateRoom={handleUpdateRoom}
+            onUpsertModerator={handleUpsertModerator}
+            onCreateExpert={handleCreateExpert}
+            onUpdateExpert={handleUpdateExpert}
+            onDeleteExpert={handleDeleteExpert}
+            onUpdateRules={handleUpdateRules}
+          />
+          <RightPanel
+            room={selectedRoom}
+            moderator={moderator}
+            experts={experts}
+          />
+        </div>
+      )}
 
       {/* 底部状态栏 */}
       <footer className="app-footer">
