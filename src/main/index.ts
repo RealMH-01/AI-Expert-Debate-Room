@@ -14,6 +14,8 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { initDatabase, closeDatabase } from './db/sqlite'
 import { runMigrations } from './db/migrations'
 import { registerHealthIpc } from './ipc/health.ipc'
+import { registerRoomIpc } from './ipc/room.ipc'
+import { registerAgentIpc } from './ipc/agent.ipc'
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -71,6 +73,8 @@ app.whenReady().then(() => {
 
   // 注册 IPC 处理器
   registerHealthIpc()
+  registerRoomIpc()
+  registerAgentIpc()
 
   // 创建主窗口
   createWindow()

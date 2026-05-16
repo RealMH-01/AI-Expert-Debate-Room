@@ -8,34 +8,37 @@
 
 import { contextBridge, ipcRenderer } from 'electron'
 
-/** 暴露给渲染进程的 API 类型 */
-export interface ElectronAPI {
-  /** 数据库健康检查 */
-  healthCheck: () => Promise<{
-    status: 'ok' | 'error'
-    database: boolean
-    timestamp: string
-    message: string
-  }>
-  /** 获取应用信息 */
-  getAppInfo: () => Promise<{
-    appName: string
-    version: string
-    databasePath: string
-    environment: string
-    nodeVersion: string
-    electronVersion: string
-    platform: string
-    arch: string
-    dbVersion: string
-    tableCount: number
-  }>
+/** 暴露给渲染进程的 API */
+const api = {
+  // ===== 应用基础 =====
+  healthCheck: () => ipcRenderer.invoke('app:health-check'),
+  getAppInfo: () => ipcRenderer.invoke('app:get-app-info'),
+
+  // ===== Room =====
+  roomGetAll: () => ipcRenderer.invoke('room:get-all'),
+  roomGetById: (id: string) => ipcRenderer.invoke('room:get-by-id', id),
+  roomCreate: (params: { name: string; description?: string }) =>
+    ipcRenderer.invoke('room:create', params),
+  roomUpdate: (params: { id: string; name: string; description: string }) =>
+    ipcRenderer.invoke('room:update', params),
+  roomUpdateRules: (params: { id: string; rules: unknown }) =>
+    ipcRenderer.invoke('room:update-rules', params),
+  roomDelete: (id: string) => ipcRenderer.invoke('room:delete', id),
+
+  // ===== Agent =====
+  agentGetModerator: (roomId: string) => ipcRenderer.invoke('agent:get-moderator', roomId),
+  agentUpsertModerator: (params: { roomId: string; data: unknown }) =>
+    ipcRenderer.invoke('agent:upsert-moderator', params),
+  agentGetExperts: (roomId: string) => ipcRenderer.invoke('agent:get-experts', roomId),
+  agentCreateExpert: (params: { roomId: string; data: unknown }) =>
+    ipcRenderer.invoke('agent:create-expert', params),
+  agentUpdateExpert: (params: { id: string; data: unknown }) =>
+    ipcRenderer.invoke('agent:update-expert', params),
+  agentDelete: (id: string) => ipcRenderer.invoke('agent:delete', id),
+  agentGetById: (id: string) => ipcRenderer.invoke('agent:get-by-id', id)
 }
 
-const api: ElectronAPI = {
-  healthCheck: () => ipcRenderer.invoke('app:health-check'),
-  getAppInfo: () => ipcRenderer.invoke('app:get-app-info')
-}
+export type ElectronAPI = typeof api
 
 // 安全暴露 API
 if (process.contextIsolated) {
