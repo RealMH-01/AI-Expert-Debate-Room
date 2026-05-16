@@ -91,6 +91,18 @@ export interface ElectronAPI {
   onDebateSessionFinished: (callback: (session: Session) => void) => () => void
   onDebateError: (callback: (error: string) => void) => () => void
   onSettlementReady: (callback: (settlement: SettlementResultDisplay) => void) => () => void
+
+  // History
+  historyGetList: (params: { search?: string; roomId?: string; limit?: number; offset?: number }) => Promise<IpcResponse<{ items: unknown[]; total: number }>>
+  historyGetDetail: (sessionId: string) => Promise<IpcResponse<unknown>>
+  historyDeleteSession: (sessionId: string) => Promise<IpcResponse<boolean>>
+  historyGetRoomsForFilter: () => Promise<IpcResponse<Array<{ id: string; name: string }>>>
+  historyGetReview: (sessionId: string) => Promise<IpcResponse<unknown>>
+
+  // Export
+  exportMarkdown: (sessionId: string) => Promise<IpcResponse<{ canceled?: boolean; filePath?: string; size?: number }>>
+  exportGetDbPath: () => Promise<IpcResponse<string>>
+  exportAllDataJson: () => Promise<IpcResponse<{ canceled?: boolean; filePath?: string; size?: number }>>
 }
 
 declare global {

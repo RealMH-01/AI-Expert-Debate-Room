@@ -68,7 +68,27 @@ export const IPC_CHANNELS = {
   /** 获取某会议的投票记录 */
   VOTES_GET_BY_SESSION: 'votes:get-by-session',
   /** 获取某会议的结算记录 */
-  SETTLEMENTS_GET_BY_SESSION: 'settlements:get-by-session'
+  SETTLEMENTS_GET_BY_SESSION: 'settlements:get-by-session',
+
+  // ===== History 相关 =====
+  /** 获取历史会议列表 */
+  HISTORY_GET_LIST: 'history:get-list',
+  /** 获取会议完整详情 */
+  HISTORY_GET_DETAIL: 'history:get-detail',
+  /** 删除历史会议 */
+  HISTORY_DELETE_SESSION: 'history:delete-session',
+  /** 获取可过滤的 room 列表 */
+  HISTORY_GET_ROOMS_FOR_FILTER: 'history:get-rooms-for-filter',
+  /** 获取会议 review */
+  HISTORY_GET_REVIEW: 'history:get-review',
+
+  // ===== Export 相关 =====
+  /** 导出 session 为 Markdown */
+  EXPORT_MARKDOWN: 'export:markdown',
+  /** 获取数据库文件路径 */
+  EXPORT_GET_DB_PATH: 'export:get-db-path',
+  /** 导出全部数据为 JSON */
+  EXPORT_ALL_DATA_JSON: 'export:all-data-json'
 } as const
 
 /** IPC 通道名类型 */

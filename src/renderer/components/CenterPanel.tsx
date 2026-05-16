@@ -18,6 +18,8 @@ import ModeratorEditor from './ModeratorEditor'
 import ExpertList from './ExpertList'
 import RulesEditor from './RulesEditor'
 import DebatePanel from './DebatePanel'
+import HistoryList from './HistoryList'
+import SessionDetail from './SessionDetail'
 
 interface CenterPanelProps {
   room: Room | null
@@ -31,7 +33,7 @@ interface CenterPanelProps {
   onUpdateRules: (id: string, rules: RulesConfig) => void
 }
 
-type TabId = 'config' | 'debate'
+type TabId = 'config' | 'debate' | 'history'
 
 const CenterPanel: React.FC<CenterPanelProps> = ({
   room,
@@ -45,18 +47,51 @@ const CenterPanel: React.FC<CenterPanelProps> = ({
   onUpdateRules
 }) => {
   const [activeTab, setActiveTab] = useState<TabId>('config')
+  const [selectedHistorySessionId, setSelectedHistorySessionId] = useState<string | null>(null)
 
   if (!room) {
     return (
       <div className="panel-center">
-        <div className="welcome-section">
-          <h2>AI 专家修罗场会议室</h2>
-          <p>
-            请从左侧选择一个会议室，或新建一个会议室开始配置。
-          </p>
-          <p className="placeholder-text" style={{ marginTop: 16 }}>
-            在会议室中你可以配置主理人、添加专家、设置辩论规则。
-          </p>
+        {/* Even without a room, show history tab */}
+        <div className="center-tabs">
+          <button
+            className={`center-tab ${activeTab === 'config' ? 'active' : ''}`}
+            onClick={() => setActiveTab('config')}
+          >
+            配置
+          </button>
+          <button
+            className={`center-tab ${activeTab === 'history' ? 'active' : ''}`}
+            onClick={() => { setActiveTab('history'); setSelectedHistorySessionId(null) }}
+          >
+            历史记录
+          </button>
+        </div>
+        <div className="center-scroll">
+          {activeTab === 'history' ? (
+            selectedHistorySessionId ? (
+              <SessionDetail
+                sessionId={selectedHistorySessionId}
+                onBack={() => setSelectedHistorySessionId(null)}
+              />
+            ) : (
+              <HistoryList
+                onSelectSession={(id) => setSelectedHistorySessionId(id)}
+              />
+            )
+          ) : (
+            <div className="welcome-section">
+              <h2>AI 专家修罗场会议室</h2>
+              <p>
+                请从左侧选择一个会议室，或新建一个会议室开始配置。
+              </p>
+              <p className="placeholder-text" style={{ marginTop: 16 }}>
+                在会议室中你可以配置主理人、添加专家、设置辩论规则。
+                <br />
+                点击"历史记录"标签查看所有历史会议。
+              </p>
+            </div>
+          )}
         </div>
       </div>
     )
@@ -77,6 +112,12 @@ const CenterPanel: React.FC<CenterPanelProps> = ({
           onClick={() => setActiveTab('debate')}
         >
           辩论
+        </button>
+        <button
+          className={`center-tab ${activeTab === 'history' ? 'active' : ''}`}
+          onClick={() => { setActiveTab('history'); setSelectedHistorySessionId(null) }}
+        >
+          历史记录
         </button>
       </div>
 
@@ -105,6 +146,19 @@ const CenterPanel: React.FC<CenterPanelProps> = ({
 
         {activeTab === 'debate' && (
           <DebatePanel roomId={room.id} />
+        )}
+
+        {activeTab === 'history' && (
+          selectedHistorySessionId ? (
+            <SessionDetail
+              sessionId={selectedHistorySessionId}
+              onBack={() => setSelectedHistorySessionId(null)}
+            />
+          ) : (
+            <HistoryList
+              onSelectSession={(id) => setSelectedHistorySessionId(id)}
+            />
+          )
         )}
       </div>
     </div>

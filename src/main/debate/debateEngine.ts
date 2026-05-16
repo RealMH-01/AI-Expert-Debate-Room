@@ -37,6 +37,11 @@ import * as agentRepo from '../db/repositories/agentRepository'
 import * as roomRepo from '../db/repositories/roomRepository'
 import * as voteRepo from '../db/repositories/voteRepository'
 import * as settlementRepo from '../db/repositories/settlementRepository'
+import * as participantRepo from '../db/repositories/participantRepository'
+import * as reviewRepo from '../db/repositories/reviewRepository'
+import * as historyRepo from '../db/repositories/historyRepository'
+import { buildSessionReview } from '../review/sessionReviewBuilder'
+import { generateSessionMarkdown } from '../export/markdownExporter'
 import { getDatabase } from '../db/sqlite'
 import { validateBallot } from '../voting/voteValidator'
 import { calculateRanking } from '../scoring/ranking'
@@ -182,6 +187,9 @@ export async function startDebate(
   // 创建 Session
   const title = `${room.name} - ${userQuestion.slice(0, 30)}${userQuestion.length > 30 ? '...' : ''}`
   let session = sessionRepo.createSession(roomId, title, userQuestion)
+
+  // Save participant snapshots at session start (moderator + experts)
+  participantRepo.insertParticipants(session.id, [moderator, ...experts])
 
   // 标记正在运行
   if (runningSessions.has(roomId)) {
@@ -587,6 +595,10 @@ async function runFinalSummary(
 
   // 更新 session 的 final_summary
   session = sessionRepo.finishSession(session.id, output.content)!
+
+  // Update participant final states and generate review
+  generateSessionReviewOnFinish(session.id, session.room_id)
+
   return session
 }
 
@@ -1143,6 +1155,11 @@ async function applySettlementFromDb(
       '[重启恢复] HP 结算已应用。辩论上下文在重启中丢失，无法生成最终总结。'
     )
 
+    // Generate review
+    if (finalSession) {
+      generateSessionReviewOnFinish(sessionId, finalSession.room_id)
+    }
+
     return { success: true, session: finalSession }
   } catch (error: unknown) {
     const errorMsg = error instanceof Error ? error.message : '未知错误'
@@ -1311,9 +1328,59 @@ async function vetoSettlementFromDb(
       '[重启恢复] HP 结算已否决。辩论上下文在重启中丢失，无法生成最终总结。'
     )
 
+    // Generate review
+    if (finalSession) {
+      generateSessionReviewOnFinish(sessionId, finalSession.room_id)
+    }
+
     return { success: true, session: finalSession }
   } catch (error: unknown) {
     const errorMsg = error instanceof Error ? error.message : '未知错误'
     return { success: false, error: errorMsg }
+  }
+}
+
+// ====== Review 生成 ======
+
+/**
+ * 在 session 完成后生成结构化复盘和 Markdown
+ * 同时更新参与者的最终状态
+ */
+function generateSessionReviewOnFinish(sessionId: string, roomId: string): void {
+  try {
+    // Update participant final states
+    const currentExperts = agentRepo.getExperts(roomId)
+    const currentModerator = agentRepo.getModerator(roomId)
+    const allAgents = currentModerator
+      ? [currentModerator, ...currentExperts]
+      : currentExperts
+
+    for (const agent of allAgents) {
+      participantRepo.updateParticipantFinalState(
+        sessionId,
+        agent.id,
+        agent.hp,
+        agent.status
+      )
+    }
+
+    // Generate review
+    const detail = historyRepo.getSessionFullDetail(sessionId)
+    if (!detail) return
+
+    const reviewData = buildSessionReview(detail)
+    const reviewJson = JSON.stringify(reviewData)
+    const markdown = generateSessionMarkdown(detail, reviewData)
+
+    reviewRepo.insertReview({
+      sessionId,
+      reviewJson,
+      markdown
+    })
+
+    console.log(`[DebateEngine] 会议 ${sessionId} 复盘已生成`)
+  } catch (error) {
+    console.error('[DebateEngine] 生成复盘失败:', error)
+    // Don't throw - review generation failure shouldn't break the session
   }
 }

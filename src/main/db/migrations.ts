@@ -22,6 +22,52 @@ const MIGRATIONS: Migration[] = [
     version: 1,
     name: '初始化基础表结构',
     sql: SCHEMA_SQL
+  },
+  {
+    version: 2,
+    name: '添加 session_reviews 和 session_participants 表',
+    sql: `
+-- ============================
+-- 会议参与者快照（记录参会时刻的专家状态）
+-- 用于历史详情还原，不受后续编辑影响
+-- ============================
+CREATE TABLE IF NOT EXISTS session_participants (
+  id              TEXT PRIMARY KEY,
+  session_id      TEXT NOT NULL,
+  agent_id        TEXT NOT NULL,
+  role            TEXT NOT NULL,
+  name            TEXT NOT NULL,
+  provider        TEXT,
+  model           TEXT,
+  persona         TEXT,
+  domain          TEXT,
+  stance          TEXT,
+  initial_hp      INTEGER NOT NULL DEFAULT 100,
+  final_hp        INTEGER,
+  initial_influence INTEGER NOT NULL DEFAULT 0,
+  initial_prestige  INTEGER NOT NULL DEFAULT 0,
+  status          TEXT NOT NULL DEFAULT 'active',
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+);
+
+-- ============================
+-- 结构化复盘
+-- ============================
+CREATE TABLE IF NOT EXISTS session_reviews (
+  id              TEXT PRIMARY KEY,
+  session_id      TEXT NOT NULL,
+  review_json     TEXT NOT NULL,
+  markdown        TEXT,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+);
+
+-- 索引
+CREATE INDEX IF NOT EXISTS idx_session_participants_session ON session_participants(session_id);
+CREATE INDEX IF NOT EXISTS idx_session_reviews_session ON session_reviews(session_id);
+`
   }
 ]
 
