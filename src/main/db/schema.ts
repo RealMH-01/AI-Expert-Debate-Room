@@ -162,4 +162,23 @@ CREATE INDEX IF NOT EXISTS idx_messages_session_round ON messages(session_id, ro
 CREATE INDEX IF NOT EXISTS idx_votes_session_round ON votes(session_id, round_index);
 CREATE INDEX IF NOT EXISTS idx_agent_snapshots_session ON agent_snapshots(session_id, round_index);
 CREATE INDEX IF NOT EXISTS idx_settlements_session_round ON settlements(session_id, round_index);
+
+-- ============================
+-- Provider 远程模型缓存
+-- ============================
+CREATE TABLE IF NOT EXISTS provider_models (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  provider_id TEXT NOT NULL,
+  model_id TEXT NOT NULL,
+  display_name TEXT,
+  status TEXT NOT NULL DEFAULT 'unverified',
+  capabilities_json TEXT,
+  source TEXT NOT NULL,
+  last_fetched_at TEXT NOT NULL,
+  last_test_status TEXT,
+  last_test_at TEXT,
+  UNIQUE(provider_id, model_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_provider_models_provider ON provider_models(provider_id);
 `;

@@ -10,7 +10,12 @@
 
 import React, { useState, useEffect } from 'react'
 import type { Agent } from '../../shared/types'
-import { PROVIDERS, findModel } from '../../shared/modelCatalog'
+import { PROVIDERS } from '../../shared/modelCatalog'
+import { isProviderId } from '../../shared/providers/modelRegistry'
+import {
+  buildProviderModelOptions,
+  type CachedProviderModel
+} from '../../shared/providers/modelOptions'
 
 interface ModeratorEditorProps {
   moderator: Agent | null
@@ -26,6 +31,7 @@ const ModeratorEditor: React.FC<ModeratorEditorProps> = ({ moderator, onUpsert }
   const [memory, setMemory] = useState(moderator?.memory ?? '')
   const [thinkingEnabled, setThinkingEnabled] = useState(moderator?.thinking_enabled ?? 0)
   const [supportsThinking, setSupportsThinking] = useState(moderator?.supports_thinking ?? 0)
+  const [cachedModels, setCachedModels] = useState<CachedProviderModel[]>([])
 
   useEffect(() => {
     setName(moderator?.name ?? '主理人')
@@ -38,6 +44,30 @@ const ModeratorEditor: React.FC<ModeratorEditorProps> = ({ moderator, onUpsert }
     setSupportsThinking(moderator?.supports_thinking ?? 0)
   }, [moderator])
 
+  useEffect(() => {
+    let canceled = false
+    if (!provider || !isProviderId(provider)) {
+      setCachedModels([])
+      return () => {
+        canceled = true
+      }
+    }
+
+    window.api.providerGetCachedModels(provider)
+      .then((res) => {
+        if (!canceled && res.success && Array.isArray(res.data)) {
+          setCachedModels(res.data as CachedProviderModel[])
+        }
+      })
+      .catch(() => {
+        if (!canceled) setCachedModels([])
+      })
+
+    return () => {
+      canceled = true
+    }
+  }, [provider])
+
   const handleProviderChange = (newProvider: string) => {
     setProvider(newProvider)
     setModel('') // 切换 provider 时重置 model
@@ -48,9 +78,9 @@ const ModeratorEditor: React.FC<ModeratorEditorProps> = ({ moderator, onUpsert }
   const handleModelChange = (newModel: string) => {
     setModel(newModel)
     if (provider && newModel) {
-      const modelInfo = findModel(provider, newModel)
+      const modelInfo = selectedProviderModels.find((item) => item.apiModelId === newModel)
       if (modelInfo) {
-        const st = modelInfo.supportsThinking ? 1 : 0
+        const st = modelInfo.supportsThinking === true ? 1 : 0
         setSupportsThinking(st)
         // 如果模型支持 thinking，则默认开启；不支持则关闭
         setThinkingEnabled(st)
@@ -76,7 +106,12 @@ const ModeratorEditor: React.FC<ModeratorEditorProps> = ({ moderator, onUpsert }
   }
 
   const selectedProviderModels = provider
-    ? PROVIDERS.find((p) => p.id === provider)?.models ?? []
+    && isProviderId(provider)
+    ? buildProviderModelOptions({
+      providerId: provider,
+      cachedModels,
+      customModelIds: model ? [model] : []
+    })
     : []
 
   return (
@@ -119,13 +154,32 @@ const ModeratorEditor: React.FC<ModeratorEditorProps> = ({ moderator, onUpsert }
           >
             <option value="">-- 未选择 --</option>
             {selectedProviderModels.map((m) => (
-              <option key={m.model} value={m.model}>
-                {m.displayName}
+              <option key={m.apiModelId} value={m.apiModelId}>
+                {m.displayName} ({m.apiModelId}) [{m.status ?? 'active'}]
               </option>
             ))}
           </select>
         </div>
       </div>
+
+      {provider && model && (() => {
+        const selected = selectedProviderModels.find((item) => item.apiModelId === model)
+        if (!selected) return null
+        const badges = [
+          selected.supportsThinking === true ? 'thinking' : '',
+          selected.supportsJson === true ? 'json' : '',
+          selected.supportsStreaming === true ? 'streaming' : '',
+          selected.supportsToolCalling === true ? 'tools' : '',
+          selected.supportsVision === true ? 'vision' : ''
+        ].filter(Boolean)
+        return (
+          <div className={`form-hint ${selected.status !== 'active' ? 'warning' : ''}`}>
+            Status: {selected.status ?? 'active'} {badges.length > 0 ? `· ${badges.join(' / ')}` : ''}
+            {selected.notes ? ` · ${selected.notes}` : ''}
+            {selected.status !== 'active' ? ' · Requires an exact successful provider test before real meetings.' : ''}
+          </div>
+        )
+      })()}
 
       {!provider && (
         <div className="form-hint warning">未选择模型 — 会议室无法启动</div>

@@ -107,11 +107,11 @@ export type ProviderId =
   | 'openai'
   | 'openai_compatible'
   | 'anthropic'
-  | 'gemini'
+  | 'google'
   | 'deepseek'
   | 'qwen'
-  | 'zhipu'
-  | 'kimi'
+  | 'bigmodel'
+  | 'moonshot'
 
 export interface ModelInfo {
   provider: ProviderId
@@ -121,6 +121,10 @@ export interface ModelInfo {
   supportsStreaming: boolean
   supportsJson: boolean
   supportsVision: boolean
+  supportsToolCalling?: boolean
+  status?: 'active' | 'unverified' | 'stub'
+  apiFormat?: string
+  defaultBaseUrl?: string
   notes: string
 }
 
