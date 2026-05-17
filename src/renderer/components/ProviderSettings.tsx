@@ -1,64 +1,56 @@
-/**
- * Provider Settings 组件
- *
- * 让用户配置真实 Provider 的 API Key、baseUrl 等。
- * 
- * 安全规则：
- * - API Key 在 UI 中用 maskedApiKey 显示
- * - 输入时显示明文（让用户确认），提交后立即清空显示
- * - 提交的 API Key 通过 IPC 发送到 Main Process 保存
- * - 读取配置时 IPC 只返回 maskedApiKey / hasApiKey
- *
- * TODO: 后续升级到系统 Keychain / Credential Manager
- */
-
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { PROVIDERS } from '../../shared/modelCatalog'
 
 interface ProviderConfigSafe {
   providerId: string
+  displayName?: string
   hasApiKey: boolean
   maskedApiKey: string
+  maskedKey?: string
   baseUrl: string
   timeout: number
   enabled: boolean
+  allowUnverifiedModels: boolean
+  lastTestStatus?: 'success' | 'failure'
+  lastTestError?: string
+  lastTestAt?: string
+  lastTestedModel?: string
 }
 
 interface ConnectionTestResult {
-  success: boolean
-  message: string
+  ok: boolean
+  providerId: string
+  model: string
   latencyMs?: number
+  errorType?: string
+  sanitizedMessage?: string
+  testedAt: string
 }
 
 const ProviderSettings: React.FC = () => {
   const [configs, setConfigs] = useState<ProviderConfigSafe[]>([])
   const [loading, setLoading] = useState(true)
-  const [selectedProvider, setSelectedProvider] = useState<string>('openai')
+  const [selectedProvider, setSelectedProvider] = useState('openai')
   const [formData, setFormData] = useState({
     apiKey: '',
     baseUrl: '',
     timeout: 60000,
-    enabled: true
+    enabled: true,
+    allowUnverifiedModels: false,
+    testModel: ''
   })
   const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null)
   const [testing, setTesting] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveMessage, setSaveMessage] = useState('')
 
-  // 第 6 轮可配置的真实 Provider 列表：只有 openai 和 openai_compatible
-  // TODO: 第 7 轮扩展 anthropic/gemini/deepseek/qwen/zhipu/kimi
-  const round6ProviderIds = ['openai', 'openai_compatible']
-  const configurableProviders = PROVIDERS.filter((p) => round6ProviderIds.includes(p.id))
+  const selectedProviderInfo = PROVIDERS.find((provider) => provider.id === selectedProvider)
+  const currentConfig = configs.find((config) => config.providerId === selectedProvider)
 
-  // 加载所有配置
   const loadConfigs = useCallback(async () => {
     try {
       const res = await window.api.providerGetAllConfigs()
-      if (res.success && res.data) {
-        setConfigs(res.data)
-      }
-    } catch (e) {
-      console.error('加载 Provider 配置失败:', e)
+      if (res.success && res.data) setConfigs(res.data as ProviderConfigSafe[])
     } finally {
       setLoading(false)
     }
@@ -68,24 +60,21 @@ const ProviderSettings: React.FC = () => {
     loadConfigs()
   }, [loadConfigs])
 
-  // 当选择的 provider 变化时，加载对应配置
   useEffect(() => {
-    const config = configs.find((c) => c.providerId === selectedProvider)
-    if (config) {
-      setFormData({
-        apiKey: '', // 不显示明文，用户需要重新输入
-        baseUrl: config.baseUrl,
-        timeout: config.timeout,
-        enabled: config.enabled
-      })
-    } else {
-      setFormData({ apiKey: '', baseUrl: '', timeout: 60000, enabled: true })
-    }
+    const config = configs.find((item) => item.providerId === selectedProvider)
+    const providerInfo = PROVIDERS.find((provider) => provider.id === selectedProvider)
+    setFormData({
+      apiKey: '',
+      baseUrl: config?.baseUrl || providerInfo?.models[0]?.defaultBaseUrl || '',
+      timeout: config?.timeout ?? 60000,
+      enabled: config?.enabled ?? true,
+      allowUnverifiedModels: config?.allowUnverifiedModels ?? selectedProvider === 'openai_compatible',
+      testModel: config?.lastTestedModel ?? ''
+    })
     setTestResult(null)
     setSaveMessage('')
   }, [selectedProvider, configs])
 
-  // 保存配置
   const handleSave = async () => {
     setSaving(true)
     setSaveMessage('')
@@ -95,141 +84,128 @@ const ProviderSettings: React.FC = () => {
         apiKey: formData.apiKey,
         baseUrl: formData.baseUrl || undefined,
         timeout: formData.timeout,
-        enabled: formData.enabled
+        enabled: formData.enabled,
+        allowUnverifiedModels: formData.allowUnverifiedModels
       })
+      setSaveMessage(res.success ? '配置已保存' : `保存失败: ${res.error}`)
       if (res.success) {
-        setSaveMessage('配置已保存')
-        setFormData((prev) => ({ ...prev, apiKey: '' })) // 清空输入的明文
+        setFormData((prev) => ({ ...prev, apiKey: '' }))
         await loadConfigs()
-      } else {
-        setSaveMessage(`保存失败: ${res.error}`)
       }
-    } catch (e) {
-      setSaveMessage(`保存异常: ${(e as Error).message}`)
     } finally {
       setSaving(false)
     }
   }
 
-  // 测试连接
   const handleTest = async () => {
     setTesting(true)
     setTestResult(null)
     try {
-      const res = await window.api.providerTestConnection(selectedProvider)
+      const res = await window.api.providerTestConnection(selectedProvider, formData.testModel || undefined)
       if (res.success && res.data) {
-        setTestResult(res.data)
+        setTestResult(res.data as ConnectionTestResult)
       } else {
-        setTestResult({ success: false, message: res.error || '测试失败' })
+        setTestResult({
+          ok: false,
+          providerId: selectedProvider,
+          model: formData.testModel,
+          sanitizedMessage: res.error || '测试失败',
+          testedAt: new Date().toISOString()
+        })
       }
-    } catch (e) {
-      setTestResult({ success: false, message: `异常: ${(e as Error).message}` })
+      await loadConfigs()
     } finally {
       setTesting(false)
     }
   }
 
-  // 删除配置
+  const handleRefreshModels = async () => {
+    const res = await window.api.providerRefreshModels(selectedProvider)
+    setSaveMessage(res.success ? '模型列表已刷新并缓存' : `刷新失败: ${res.error}`)
+  }
+
   const handleDelete = async () => {
-    if (!confirm(`确定删除 ${selectedProvider} 的配置？API Key 将被永久删除。`)) return
-    try {
-      const res = await window.api.providerDeleteConfig(selectedProvider)
-      if (res.success) {
-        setSaveMessage('配置已删除')
-        await loadConfigs()
-      }
-    } catch (e) {
-      setSaveMessage(`删除失败: ${(e as Error).message}`)
-    }
+    if (!confirm(`确定删除 ${selectedProvider} 的配置？API Key 将被删除。`)) return
+    const res = await window.api.providerDeleteConfig(selectedProvider)
+    setSaveMessage(res.success ? '配置已删除' : `删除失败: ${res.error}`)
+    await loadConfigs()
   }
 
-  const currentConfig = configs.find((c) => c.providerId === selectedProvider)
-
-  if (loading) {
-    return <div className="provider-settings loading">加载配置中...</div>
-  }
+  if (loading) return <div className="provider-settings loading">加载配置中...</div>
 
   return (
     <div className="provider-settings">
       <h3>Provider 配置</h3>
       <p className="settings-hint">
-        配置真实 AI Provider 的 API Key。配置后可在创建专家/主理人时选择对应模型。
-      </p>
-      <p className="settings-hint warning">
-        TODO: 当前 API Key 存储为本地 MVP 方案，后续将升级到系统 Keychain / Credential Manager。
+        API Key 只保存在主进程和本地 SQLite 设置中，界面只显示脱敏状态。
       </p>
 
-      {/* Provider 选择 */}
       <div className="form-group">
-        <label className="form-label">选择 Provider</label>
+        <label className="form-label">Provider</label>
         <select
           className="form-select"
           value={selectedProvider}
-          onChange={(e) => setSelectedProvider(e.target.value)}
+          onChange={(event) => setSelectedProvider(event.target.value)}
         >
-          {configurableProviders.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.displayName}
-              {configs.find((c) => c.providerId === p.id)?.hasApiKey ? ' ✓' : ''}
+          {PROVIDERS.map((provider) => (
+            <option key={provider.id} value={provider.id}>
+              {provider.displayName}
+              {configs.find((config) => config.providerId === provider.id)?.hasApiKey ? ' configured' : ''}
             </option>
           ))}
         </select>
       </div>
 
-      {/* 当前状态 */}
-      {currentConfig && (
-        <div className="provider-status">
-          <span className={`status-badge ${currentConfig.enabled ? 'enabled' : 'disabled'}`}>
-            {currentConfig.enabled ? '已启用' : '已禁用'}
+      <div className="provider-status">
+        <span className={`status-badge ${formData.enabled ? 'enabled' : 'disabled'}`}>
+          {formData.enabled ? 'enabled' : 'disabled'}
+        </span>
+        {currentConfig?.hasApiKey && (
+          <span className="api-key-display">API Key: {currentConfig.maskedKey || currentConfig.maskedApiKey}</span>
+        )}
+        {currentConfig?.lastTestStatus && (
+          <span className={`status-badge ${currentConfig.lastTestStatus === 'success' ? 'enabled' : 'disabled'}`}>
+            test {currentConfig.lastTestStatus}
           </span>
-          {currentConfig.hasApiKey && (
-            <span className="api-key-display">
-              API Key: {currentConfig.maskedApiKey}
-            </span>
-          )}
-        </div>
-      )}
+        )}
+      </div>
 
-      {/* 配置表单 */}
       <div className="form-group">
         <label className="form-label">
-          API Key {currentConfig?.hasApiKey ? '（已配置，留空保持不变）' : '（必填）'}
+          API Key {currentConfig?.hasApiKey ? '(留空保持不变)' : '(必填)'}
         </label>
         <input
           type="password"
           className="form-input"
           value={formData.apiKey}
-          onChange={(e) => setFormData((prev) => ({ ...prev, apiKey: e.target.value }))}
-          placeholder={currentConfig?.hasApiKey ? '留空保持当前 Key 不变' : '输入 API Key'}
+          onChange={(event) => setFormData((prev) => ({ ...prev, apiKey: event.target.value }))}
+          placeholder={currentConfig?.hasApiKey ? '留空保持当前 Key' : '输入 API Key'}
           autoComplete="off"
         />
       </div>
 
       <div className="form-group">
-        <label className="form-label">Base URL（可选，留空使用默认）</label>
+        <label className="form-label">Base URL</label>
         <input
           className="form-input"
           value={formData.baseUrl}
-          onChange={(e) => setFormData((prev) => ({ ...prev, baseUrl: e.target.value }))}
-          placeholder="https://api.openai.com"
+          onChange={(event) => setFormData((prev) => ({ ...prev, baseUrl: event.target.value }))}
+          placeholder={selectedProviderInfo?.models[0]?.defaultBaseUrl || 'Provider default'}
         />
-        <div className="form-hint">
-          自定义 API 端点。如使用代理或 OpenAI 兼容服务，填写此处。
-        </div>
       </div>
 
       <div className="form-row">
         <div className="form-group flex-1">
-          <label className="form-label">超时时间 (ms)</label>
+          <label className="form-label">Timeout (ms)</label>
           <input
             type="number"
             className="form-input"
             value={formData.timeout}
-            onChange={(e) =>
-              setFormData((prev) => ({ ...prev, timeout: Number(e.target.value) || 60000 }))
-            }
             min={5000}
             max={300000}
+            onChange={(event) =>
+              setFormData((prev) => ({ ...prev, timeout: Number(event.target.value) || 60000 }))
+            }
           />
         </div>
         <div className="form-group flex-1">
@@ -237,28 +213,47 @@ const ProviderSettings: React.FC = () => {
             <input
               type="checkbox"
               checked={formData.enabled}
-              onChange={(e) => setFormData((prev) => ({ ...prev, enabled: e.target.checked }))}
+              onChange={(event) => setFormData((prev) => ({ ...prev, enabled: event.target.checked }))}
             />
-            <span>启用此 Provider</span>
+            <span>Enable provider</span>
+          </label>
+          <label className="form-label-inline">
+            <input
+              type="checkbox"
+              checked={formData.allowUnverifiedModels}
+              onChange={(event) =>
+                setFormData((prev) => ({ ...prev, allowUnverifiedModels: event.target.checked }))
+              }
+            />
+            <span>Allow unverified models</span>
           </label>
         </div>
       </div>
 
-      {/* 操作按钮 */}
+      <div className="form-group">
+        <label className="form-label">Custom / test model ID</label>
+        <input
+          className="form-input"
+          value={formData.testModel}
+          onChange={(event) => setFormData((prev) => ({ ...prev, testModel: event.target.value }))}
+          placeholder="Optional model ID for connection test"
+        />
+        {formData.testModel && (
+          <div className="form-hint warning">
+            This model ID is user-provided and unverified by the built-in registry.
+          </div>
+        )}
+      </div>
+
       <div className="provider-actions">
-        <button
-          className="btn btn-primary"
-          onClick={handleSave}
-          disabled={saving}
-        >
+        <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
           {saving ? '保存中...' : '保存配置'}
         </button>
-        <button
-          className="btn btn-secondary"
-          onClick={handleTest}
-          disabled={testing || !currentConfig?.hasApiKey}
-        >
+        <button className="btn btn-secondary" onClick={handleTest} disabled={testing || !currentConfig?.hasApiKey}>
           {testing ? '测试中...' : '测试连接'}
+        </button>
+        <button className="btn btn-secondary" onClick={handleRefreshModels}>
+          Refresh models
         </button>
         {currentConfig && (
           <button className="btn btn-danger btn-small" onClick={handleDelete}>
@@ -267,21 +262,17 @@ const ProviderSettings: React.FC = () => {
         )}
       </div>
 
-      {/* 保存消息 */}
       {saveMessage && (
         <div className={`save-message ${saveMessage.includes('失败') ? 'error' : 'success'}`}>
           {saveMessage}
         </div>
       )}
 
-      {/* 测试结果 */}
       {testResult && (
-        <div className={`test-result ${testResult.success ? 'success' : 'error'}`}>
-          <strong>{testResult.success ? '✓ 连接成功' : '✗ 连接失败'}</strong>
-          <p>{testResult.message}</p>
-          {testResult.latencyMs !== undefined && (
-            <p className="latency">延迟: {testResult.latencyMs}ms</p>
-          )}
+        <div className={`test-result ${testResult.ok ? 'success' : 'error'}`}>
+          <strong>{testResult.ok ? '连接成功' : '连接失败'}</strong>
+          <p>{testResult.sanitizedMessage || `${testResult.providerId}/${testResult.model}`}</p>
+          {testResult.latencyMs !== undefined && <p className="latency">延迟: {testResult.latencyMs}ms</p>}
         </div>
       )}
     </div>

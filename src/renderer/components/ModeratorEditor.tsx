@@ -120,12 +120,30 @@ const ModeratorEditor: React.FC<ModeratorEditorProps> = ({ moderator, onUpsert }
             <option value="">-- 未选择 --</option>
             {selectedProviderModels.map((m) => (
               <option key={m.model} value={m.model}>
-                {m.displayName}
+                {m.displayName} ({m.model}) [{m.status ?? 'active'}]
               </option>
             ))}
           </select>
         </div>
       </div>
+
+      {provider && model && (() => {
+        const selected = findModel(provider, model)
+        if (!selected) return null
+        const badges = [
+          selected.supportsThinking ? 'thinking' : '',
+          selected.supportsJson ? 'json' : '',
+          selected.supportsStreaming ? 'streaming' : '',
+          selected.supportsToolCalling ? 'tools' : '',
+          selected.supportsVision ? 'vision' : ''
+        ].filter(Boolean)
+        return (
+          <div className="form-hint">
+            Status: {selected.status ?? 'active'} {badges.length > 0 ? `· ${badges.join(' / ')}` : ''}
+            {selected.notes ? ` · ${selected.notes}` : ''}
+          </div>
+        )
+      })()}
 
       {!provider && (
         <div className="form-hint warning">未选择模型 — 会议室无法启动</div>

@@ -68,6 +68,27 @@ CREATE TABLE IF NOT EXISTS session_reviews (
 CREATE INDEX IF NOT EXISTS idx_session_participants_session ON session_participants(session_id);
 CREATE INDEX IF NOT EXISTS idx_session_reviews_session ON session_reviews(session_id);
 `
+  },
+  {
+    version: 3,
+    name: 'add provider model cache',
+    sql: `
+CREATE TABLE IF NOT EXISTS provider_models (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  provider_id TEXT NOT NULL,
+  model_id TEXT NOT NULL,
+  display_name TEXT,
+  status TEXT NOT NULL DEFAULT 'unverified',
+  capabilities_json TEXT,
+  source TEXT NOT NULL,
+  last_fetched_at TEXT NOT NULL,
+  last_test_status TEXT,
+  last_test_at TEXT,
+  UNIQUE(provider_id, model_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_provider_models_provider ON provider_models(provider_id);
+`
   }
 ]
 
