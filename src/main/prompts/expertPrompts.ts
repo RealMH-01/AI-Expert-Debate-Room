@@ -16,6 +16,40 @@
 import type { DebateGenerateInput } from '../providers/base'
 import type { ChatMessage } from './moderatorPrompts'
 
+const EXPERT_INITIAL_OUTPUT_CONTRACT = `
+
+输出格式要求：
+只输出一个 JSON 对象，不要包裹 Markdown 代码块。字段如下：
+{
+  "message": "专家本轮完整发言正文，可使用 Markdown",
+  "claims": [
+    { "claim_text": "本轮自己提出的核心观点，最多 3 条" }
+  ],
+  "attacks": []
+}
+claims 只记录可被攻击、可被反驳、可被修正的观点；不要判断真假。`
+
+const EXPERT_DEBATE_OUTPUT_CONTRACT = `
+
+输出格式要求：
+只输出一个 JSON 对象，不要包裹 Markdown 代码块。字段如下：
+{
+  "message": "专家本轮完整发言正文，可使用 Markdown",
+  "claims": [
+    { "claim_text": "本轮自己提出或修正的核心观点，最多 3 条" }
+  ],
+  "attacks": [
+    {
+      "target_expert_id": "被攻击专家 ID；不知道时可为空",
+      "target_claim_text": "被攻击观点原文或摘要；不知道时可为空",
+      "attack_text": "具体攻击内容",
+      "attack_dimensions": ["logic", "evidence"]
+    }
+  ]
+}
+attack_dimensions 只能从以下值中选择：logic, evidence, feasibility, consistency, assumption, risk, creativity, user_value, other。
+claims 和 attacks 只用于复盘展示，不影响投票、HP、议事权或最终排名。`
+
 /**
  * 专家首轮独立回答 prompt
  */
@@ -53,7 +87,7 @@ ${agent.memory ? `你的背景记忆：${agent.memory}` : ''}
 
   return [
     { role: 'system', content: system },
-    { role: 'user', content: user }
+    { role: 'user', content: `${user}${EXPERT_INITIAL_OUTPUT_CONTRACT}` }
   ]
 }
 
@@ -118,6 +152,6 @@ ${attacksOnMe ? `对你的攻击：\n${attacksOnMe}` : ''}
 
   return [
     { role: 'system', content: system },
-    { role: 'user', content: user }
+    { role: 'user', content: `${user}${EXPERT_DEBATE_OUTPUT_CONTRACT}` }
   ]
 }

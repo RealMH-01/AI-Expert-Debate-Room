@@ -117,6 +117,8 @@ export function registerExportIpc(): void {
         messages: db.prepare('SELECT * FROM messages').all(),
         votes: db.prepare('SELECT * FROM votes').all(),
         settlements: db.prepare('SELECT * FROM settlements').all(),
+        claims: db.prepare('SELECT * FROM claims').all(),
+        attacks: db.prepare('SELECT * FROM attacks').all(),
         agent_snapshots: db.prepare('SELECT * FROM agent_snapshots').all(),
         session_participants: db.prepare('SELECT * FROM session_participants').all(),
         session_reviews: db.prepare('SELECT * FROM session_reviews').all(),

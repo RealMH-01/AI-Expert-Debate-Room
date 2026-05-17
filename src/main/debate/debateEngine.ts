@@ -40,6 +40,7 @@ import * as settlementRepo from '../db/repositories/settlementRepository'
 import * as participantRepo from '../db/repositories/participantRepository'
 import * as reviewRepo from '../db/repositories/reviewRepository'
 import * as historyRepo from '../db/repositories/historyRepository'
+import * as claimRepo from '../db/repositories/claimRepository'
 import { buildSessionReview } from '../review/sessionReviewBuilder'
 import { generateSessionMarkdown } from '../export/markdownExporter'
 import { getDatabase } from '../db/sqlite'
@@ -47,6 +48,7 @@ import { validateBallot } from '../voting/voteValidator'
 import { calculateRanking } from '../scoring/ranking'
 import { generateSettlementPreview, calculateInfluenceChange, calculatePrestigeChange } from '../scoring/hpSettlement'
 import type { SingleVote, SettlementResult } from '../voting/voteTypes'
+import { normalizeProviderDebateOutput } from '../claims/claimTracker'
 
 /**
  * 会议运行中的回调接口
@@ -336,6 +338,38 @@ export async function startDebate(
 
 // ====== 各阶段实现 ======
 
+function saveClaimsAndAttacks(
+  meetingId: string,
+  roundIndex: number,
+  expertId: string,
+  sourceMessageId: string,
+  normalized: ReturnType<typeof normalizeProviderDebateOutput>
+): void {
+  try {
+    if (normalized.claims.length > 0) {
+      claimRepo.insertClaimsForMessage({
+        meetingId,
+        roundIndex,
+        speakerExpertId: expertId,
+        sourceMessageId,
+        claims: normalized.claims
+      })
+    }
+
+    if (normalized.attacks.length > 0) {
+      claimRepo.insertAttacksForMessage({
+        meetingId,
+        roundIndex,
+        attackerExpertId: expertId,
+        sourceMessageId,
+        attacks: normalized.attacks
+      })
+    }
+  } catch (error) {
+    console.error('[DebateEngine] Claim/attack tracking failed:', error)
+  }
+}
+
 async function runModeratorOpening(
   session: Session,
   provider: DebateModelProvider,
@@ -426,6 +460,7 @@ async function runInitialAnswers(
 
     try {
       const output = await expertProvider.generateExpertInitialAnswer(input)
+      const normalized = normalizeProviderDebateOutput(output)
 
       const message = messageRepo.insertMessage({
         sessionId: session.id,
@@ -434,9 +469,11 @@ async function runInitialAnswers(
         speakerId: expert.id,
         speakerName: expert.name,
         speakerRole: 'expert',
-        content: output.content,
-        structuredJson: output.structuredJson ? JSON.stringify(output.structuredJson) : null
+        content: normalized.message,
+        structuredJson: normalized.structuredJson ? JSON.stringify(normalized.structuredJson) : null
       })
+
+      saveClaimsAndAttacks(session.id, 0, expert.id, message.id, normalized)
 
       // 追加到最终 transcript（供后续辩论轮使用），但不影响本轮其他专家
       transcript.push({
@@ -444,7 +481,7 @@ async function runInitialAnswers(
         speakerRole: 'expert',
         phase,
         roundIndex: 0,
-        content: output.content
+        content: normalized.message
       })
 
       callbacks.onMessage(message)
@@ -507,6 +544,7 @@ async function runDebateRound(
 
     try {
       const output = await expertProvider.generateExpertDebateTurn(input)
+      const normalized = normalizeProviderDebateOutput(output)
 
       const message = messageRepo.insertMessage({
         sessionId: session.id,
@@ -515,16 +553,18 @@ async function runDebateRound(
         speakerId: expert.id,
         speakerName: expert.name,
         speakerRole: 'expert',
-        content: output.content,
-        structuredJson: output.structuredJson ? JSON.stringify(output.structuredJson) : null
+        content: normalized.message,
+        structuredJson: normalized.structuredJson ? JSON.stringify(normalized.structuredJson) : null
       })
+
+      saveClaimsAndAttacks(session.id, roundIndex, expert.id, message.id, normalized)
 
       transcript.push({
         speakerName: expert.name,
         speakerRole: 'expert',
         phase: debatePhase,
         roundIndex,
-        content: output.content
+        content: normalized.message
       })
 
       callbacks.onMessage(message)

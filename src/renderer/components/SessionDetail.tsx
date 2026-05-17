@@ -40,6 +40,8 @@ interface SessionFullDetail {
   votes: DetailVote[]
   settlements: DetailSettlement[]
   snapshots: DetailSnapshot[]
+  claims: DetailClaim[]
+  attacks: DetailAttack[]
   review: { id: string; session_id: string; review_json: string; markdown: string | null; created_at: string; updated_at: string } | null
 }
 
@@ -101,6 +103,30 @@ interface DetailSnapshot {
   influence: number
   prestige: number
   status: string
+}
+
+interface DetailClaim {
+  id: string
+  meeting_id: string
+  round_index: number
+  speaker_expert_id: string
+  source_message_id: string
+  claim_text: string
+  status: 'active' | 'revised' | 'abandoned'
+  revised_from_claim_id: string | null
+}
+
+interface DetailAttack {
+  id: string
+  meeting_id: string
+  round_index: number
+  attacker_expert_id: string
+  target_expert_id: string | null
+  target_claim_id: string | null
+  target_claim_text: string | null
+  attack_text: string
+  attack_dimensions_json: string
+  source_message_id: string
 }
 
 interface ReviewData {
@@ -185,7 +211,7 @@ const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId, onBack }) => {
     )
   }
 
-  const { session, room_name, participants, messages, votes, settlements } = detail
+  const { session, room_name, participants, messages, votes, settlements, claims, attacks } = detail
   const moderator = participants.find((p) => p.role === 'moderator')
   const experts = participants.filter((p) => p.role === 'expert')
 
@@ -215,6 +241,56 @@ const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId, onBack }) => {
   const nameMap = new Map<string, string>()
   for (const p of participants) {
     nameMap.set(p.agent_id, p.name)
+  }
+
+  const renderClaimsForMessage = (messageId: string) => {
+    const messageClaims = claims.filter((claim) => claim.source_message_id === messageId)
+    if (messageClaims.length === 0) return null
+
+    return (
+      <div className="detail-claims">
+        <div className="detail-subtitle">Claims</div>
+        {messageClaims.map((claim) => (
+          <div key={claim.id} className="detail-claim-item">
+            <span className={`claim-status ${claim.status}`}>{claim.status}</span>
+            <span>{claim.claim_text}</span>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  const renderAttacksForMessage = (messageId: string) => {
+    const messageAttacks = attacks.filter((attack) => attack.source_message_id === messageId)
+    if (messageAttacks.length === 0) return null
+
+    return (
+      <div className="detail-attacks">
+        <div className="detail-subtitle">攻击记录</div>
+        {messageAttacks.map((attack) => (
+          <div key={attack.id} className="detail-attack-item">
+            <div className="detail-attack-line">
+              <strong>{nameMap.get(attack.attacker_expert_id) || attack.attacker_expert_id.slice(0, 8)}</strong>
+              <span> → </span>
+              <strong>
+                {attack.target_expert_id
+                  ? nameMap.get(attack.target_expert_id) || attack.target_expert_id.slice(0, 8)
+                  : '未绑定专家'}
+              </strong>
+            </div>
+            {attack.target_claim_text && (
+              <div className="detail-target-claim">被攻击观点：{attack.target_claim_text}</div>
+            )}
+            <div className="detail-attack-text">{attack.attack_text}</div>
+            <div className="attack-dimensions">
+              {parseAttackDimensions(attack.attack_dimensions_json).map((dimension) => (
+                <span key={dimension} className="attack-dimension-tag">{dimension}</span>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    )
   }
 
   const sections = [
@@ -364,6 +440,8 @@ const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId, onBack }) => {
                       <span className="detail-msg-role">专家</span>
                     </div>
                     <div className="detail-msg-content">{msg.content}</div>
+                    {renderClaimsForMessage(msg.id)}
+                    {renderAttacksForMessage(msg.id)}
                   </div>
                 ))}
               </div>
@@ -382,6 +460,8 @@ const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId, onBack }) => {
                         <span className="detail-msg-role">{msg.speaker_role}</span>
                       </div>
                       <div className="detail-msg-content">{msg.content}</div>
+                      {renderClaimsForMessage(msg.id)}
+                      {renderAttacksForMessage(msg.id)}
                     </div>
                   ))}
                 {roundSummaryMsgs
@@ -720,6 +800,18 @@ function formatStatus(status: string): string {
     failed: '失败'
   }
   return map[status] || status
+}
+
+function parseAttackDimensions(json: string | null | undefined): string[] {
+  if (!json) return ['unknown']
+  try {
+    const parsed = JSON.parse(json)
+    return Array.isArray(parsed) && parsed.length > 0
+      ? parsed.map((item) => String(item))
+      : ['unknown']
+  } catch {
+    return ['unknown']
+  }
 }
 
 export default SessionDetail

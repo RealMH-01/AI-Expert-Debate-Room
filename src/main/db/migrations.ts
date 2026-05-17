@@ -68,6 +68,49 @@ CREATE TABLE IF NOT EXISTS session_reviews (
 CREATE INDEX IF NOT EXISTS idx_session_participants_session ON session_participants(session_id);
 CREATE INDEX IF NOT EXISTS idx_session_reviews_session ON session_reviews(session_id);
 `
+  },
+  {
+    version: 3,
+    name: 'add claims and attacks tracking tables',
+    sql: `
+CREATE TABLE IF NOT EXISTS claims (
+  id                     TEXT PRIMARY KEY,
+  meeting_id             TEXT NOT NULL,
+  round_index            INTEGER NOT NULL,
+  speaker_expert_id      TEXT NOT NULL,
+  source_message_id      TEXT NOT NULL,
+  claim_text             TEXT NOT NULL,
+  status                 TEXT NOT NULL DEFAULT 'active',
+  revised_from_claim_id  TEXT,
+  created_at             TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at             TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (meeting_id) REFERENCES sessions(id) ON DELETE CASCADE,
+  FOREIGN KEY (source_message_id) REFERENCES messages(id) ON DELETE CASCADE,
+  FOREIGN KEY (revised_from_claim_id) REFERENCES claims(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS attacks (
+  id                      TEXT PRIMARY KEY,
+  meeting_id              TEXT NOT NULL,
+  round_index             INTEGER NOT NULL,
+  attacker_expert_id      TEXT NOT NULL,
+  target_expert_id        TEXT,
+  target_claim_id         TEXT,
+  target_claim_text       TEXT,
+  attack_text             TEXT NOT NULL,
+  attack_dimensions_json  TEXT NOT NULL,
+  source_message_id       TEXT NOT NULL,
+  created_at              TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (meeting_id) REFERENCES sessions(id) ON DELETE CASCADE,
+  FOREIGN KEY (source_message_id) REFERENCES messages(id) ON DELETE CASCADE,
+  FOREIGN KEY (target_claim_id) REFERENCES claims(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_claims_meeting_round ON claims(meeting_id, round_index);
+CREATE INDEX IF NOT EXISTS idx_claims_source_message ON claims(source_message_id);
+CREATE INDEX IF NOT EXISTS idx_attacks_meeting_round ON attacks(meeting_id, round_index);
+CREATE INDEX IF NOT EXISTS idx_attacks_source_message ON attacks(source_message_id);
+`
   }
 ]
 

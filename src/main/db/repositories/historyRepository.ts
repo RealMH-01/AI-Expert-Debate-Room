@@ -8,6 +8,7 @@
 
 import { getDatabase } from '../sqlite'
 import type { Session } from '../../../shared/types'
+import type { AttackRecord, ClaimRecord } from './claimRepository'
 
 export interface HistorySessionItem {
   id: string
@@ -112,6 +113,8 @@ export interface SessionFullDetail {
   votes: SessionVote[]
   settlements: SessionSettlement[]
   snapshots: SessionSnapshot[]
+  claims: ClaimRecord[]
+  attacks: AttackRecord[]
   review: SessionReviewRecord | null
 }
 
@@ -234,6 +237,14 @@ export function getSessionFullDetail(sessionId: string): SessionFullDetail | nul
     )
     .all(sessionId) as SessionSnapshot[]
 
+  const claims = db
+    .prepare('SELECT * FROM claims WHERE meeting_id = ? ORDER BY round_index ASC, created_at ASC')
+    .all(sessionId) as ClaimRecord[]
+
+  const attacks = db
+    .prepare('SELECT * FROM attacks WHERE meeting_id = ? ORDER BY round_index ASC, created_at ASC')
+    .all(sessionId) as AttackRecord[]
+
   const review = db
     .prepare('SELECT * FROM session_reviews WHERE session_id = ? ORDER BY created_at DESC LIMIT 1')
     .get(sessionId) as SessionReviewRecord | undefined
@@ -246,6 +257,8 @@ export function getSessionFullDetail(sessionId: string): SessionFullDetail | nul
     votes,
     settlements,
     snapshots,
+    claims,
+    attacks,
     review: review ?? null
   }
 }
@@ -262,6 +275,8 @@ export function deleteSession(sessionId: string): boolean {
 
   const deleteTxn = db.transaction(() => {
     db.prepare('DELETE FROM session_reviews WHERE session_id = ?').run(sessionId)
+    db.prepare('DELETE FROM attacks WHERE meeting_id = ?').run(sessionId)
+    db.prepare('DELETE FROM claims WHERE meeting_id = ?').run(sessionId)
     db.prepare('DELETE FROM agent_snapshots WHERE session_id = ?').run(sessionId)
     db.prepare('DELETE FROM settlements WHERE session_id = ?').run(sessionId)
     db.prepare('DELETE FROM votes WHERE session_id = ?').run(sessionId)

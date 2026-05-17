@@ -13,6 +13,7 @@ import type {
   SessionVote,
   SessionSettlement
 } from '../db/repositories/historyRepository'
+import type { AttackRecord, ClaimRecord } from '../db/repositories/claimRepository'
 import type { ReviewData } from '../review/sessionReviewBuilder'
 
 /**
@@ -22,7 +23,7 @@ export function generateSessionMarkdown(
   detail: SessionFullDetail,
   reviewData?: ReviewData | null
 ): string {
-  const { session, room_name, participants, messages, votes, settlements, review } = detail
+  const { session, room_name, participants, messages, votes, settlements, claims, attacks, review } = detail
   const lines: string[] = []
 
   // Title
@@ -100,6 +101,7 @@ export function generateSessionMarkdown(
       lines.push('')
       lines.push(msg.content)
       lines.push('')
+      appendClaimsForMessage(lines, claims, msg.id)
     }
   }
 
@@ -124,7 +126,10 @@ export function generateSessionMarkdown(
         lines.push('')
         lines.push(msg.content)
         lines.push('')
+        appendClaimsForMessage(lines, claims, msg.id)
       }
+
+      appendAttacksForRound(lines, attacks, participants, roundIdx)
 
       const roundSummary = roundSummaries.find(
         (m) => m.round_index === roundIdx && m.speaker_role === 'moderator'
@@ -342,6 +347,58 @@ function formatStatus(status: string): string {
 function findParticipantName(participants: SessionParticipant[], agentId: string): string {
   const p = participants.find((pp) => pp.agent_id === agentId)
   return p?.name || '未知'
+}
+
+function appendClaimsForMessage(
+  lines: string[],
+  claims: ClaimRecord[],
+  messageId: string
+): void {
+  const messageClaims = claims.filter((claim) => claim.source_message_id === messageId)
+  if (messageClaims.length === 0) return
+
+  lines.push('**Claims**')
+  lines.push('')
+  for (const claim of messageClaims) {
+    lines.push(`- [${claim.status}] ${claim.claim_text}`)
+  }
+  lines.push('')
+}
+
+function appendAttacksForRound(
+  lines: string[],
+  attacks: AttackRecord[],
+  participants: SessionParticipant[],
+  roundIndex: number
+): void {
+  const roundAttacks = attacks.filter((attack) => attack.round_index === roundIndex)
+  if (roundAttacks.length === 0) return
+
+  lines.push('**攻击记录**')
+  lines.push('')
+  for (const attack of roundAttacks) {
+    const attacker = findParticipantName(participants, attack.attacker_expert_id)
+    const target = attack.target_expert_id
+      ? findParticipantName(participants, attack.target_expert_id)
+      : '未绑定专家'
+    const dimensions = parseDimensions(attack.attack_dimensions_json).join(', ')
+    const targetClaim = attack.target_claim_text || '未绑定 claim'
+    lines.push(`- **${attacker} -> ${target}** [${dimensions}] ${attack.attack_text}`)
+    lines.push(`  - Target claim: ${targetClaim}`)
+  }
+  lines.push('')
+}
+
+function parseDimensions(json: string | null | undefined): string[] {
+  if (!json) return ['unknown']
+  try {
+    const parsed = JSON.parse(json)
+    return Array.isArray(parsed) && parsed.length > 0
+      ? parsed.map((item) => String(item))
+      : ['unknown']
+  } catch {
+    return ['unknown']
+  }
 }
 
 function appendSettlementItems(
