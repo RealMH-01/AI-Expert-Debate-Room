@@ -88,6 +88,35 @@ describe('Round 7 API key safety and meeting preflight', () => {
     expect(serialized).not.toContain('auth-secret')
   })
 
+  it('keeps settings.key while redacting sensitive provider config value_json data', () => {
+    const redacted = sanitizeSensitiveData({
+      key: 'provider_configs',
+      value_json: JSON.stringify({
+        apiKey: 'sk-live-provider-secret',
+        client_secret: 'client-secret-value',
+        id_token: 'id-token-value',
+        password: 'password-value',
+        defaultHeaders: {
+          Authorization: 'Bearer nested-secret',
+          'x-api-key': 'x-secret',
+          'x-goog-api-key': 'goog-secret',
+          normal: 'kept'
+        }
+      })
+    })
+
+    expect(redacted.key).toBe('provider_configs')
+    expect(redacted).toHaveProperty('value_json')
+    expect(JSON.stringify(redacted)).not.toContain('sk-live-provider-secret')
+    expect(JSON.stringify(redacted)).not.toContain('client-secret-value')
+    expect(JSON.stringify(redacted)).not.toContain('id-token-value')
+    expect(JSON.stringify(redacted)).not.toContain('password-value')
+    expect(JSON.stringify(redacted)).not.toContain('nested-secret')
+    expect(JSON.stringify(redacted)).not.toContain('x-secret')
+    expect(JSON.stringify(redacted)).not.toContain('goog-secret')
+    expect(JSON.stringify(redacted)).toContain('kept')
+  })
+
   it('blocks invalid provider/model combinations before real meetings', () => {
     expect(validateAgentProviderConfig(agent({
       provider: 'unknown',
@@ -135,7 +164,30 @@ describe('Round 7 API key safety and meeting preflight', () => {
     }), {
       providerConfigured: true,
       allowUnverifiedModels: true,
-      lastTestStatus: 'success'
+      lastTestStatus: 'success',
+      lastTestedModel: 'custom-qwen'
+    }).ok).toBe(true)
+
+    const mismatchedModel = validateAgentProviderConfig(agent({
+      provider: 'qwen',
+      model: 'custom-b'
+    }), {
+      providerConfigured: true,
+      allowUnverifiedModels: true,
+      lastTestStatus: 'success',
+      lastTestedModel: 'custom-a'
+    })
+    expect(mismatchedModel.ok).toBe(false)
+    expect(mismatchedModel.reason).toContain('for this exact model')
+
+    expect(validateAgentProviderConfig(agent({
+      provider: 'qwen',
+      model: 'qwen3.6-plus'
+    }), {
+      providerConfigured: true,
+      allowUnverifiedModels: false,
+      lastTestStatus: 'failure',
+      lastTestedModel: 'other-model'
     }).ok).toBe(true)
   })
 })

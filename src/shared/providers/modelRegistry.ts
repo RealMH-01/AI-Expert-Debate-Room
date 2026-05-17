@@ -166,13 +166,18 @@ function model(
 ): ModelCapability {
   const provider = getProviderDefinition(providerId)
   if (!provider) throw new Error(`Unknown providerId: ${providerId}`)
+  const streamingNote = overrides.supportsStreaming === true
+    ? 'supportsStreaming means the official API supports streaming; current adapters may still consume non-streaming responses.'
+    : ''
+  const notes = [overrides.notes, streamingNote].filter(Boolean).join(' ')
   return {
     providerId,
     providerDisplayName: provider.displayName,
     displayName,
     apiModelId,
     status: overrides.status ?? 'active',
-    ...overrides
+    ...overrides,
+    notes: notes || overrides.notes
   }
 }
 

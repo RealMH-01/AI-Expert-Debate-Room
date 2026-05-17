@@ -6,7 +6,12 @@
 
 import React, { useState, useEffect } from 'react'
 import type { Agent } from '../../shared/types'
-import { PROVIDERS, findModel } from '../../shared/modelCatalog'
+import { PROVIDERS } from '../../shared/modelCatalog'
+import { isProviderId } from '../../shared/providers/modelRegistry'
+import {
+  buildProviderModelOptions,
+  type CachedProviderModel
+} from '../../shared/providers/modelOptions'
 
 interface ExpertEditorProps {
   expert: Agent
@@ -25,6 +30,7 @@ const ExpertEditor: React.FC<ExpertEditorProps> = ({ expert, onUpdate, onDelete 
   const [aggression, setAggression] = useState(expert.aggression)
   const [thinkingEnabled, setThinkingEnabled] = useState(expert.thinking_enabled)
   const [supportsThinking, setSupportsThinking] = useState(expert.supports_thinking)
+  const [cachedModels, setCachedModels] = useState<CachedProviderModel[]>([])
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   useEffect(() => {
@@ -40,6 +46,30 @@ const ExpertEditor: React.FC<ExpertEditorProps> = ({ expert, onUpdate, onDelete 
     setSupportsThinking(expert.supports_thinking)
   }, [expert])
 
+  useEffect(() => {
+    let canceled = false
+    if (!provider || !isProviderId(provider)) {
+      setCachedModels([])
+      return () => {
+        canceled = true
+      }
+    }
+
+    window.api.providerGetCachedModels(provider)
+      .then((res) => {
+        if (!canceled && res.success && Array.isArray(res.data)) {
+          setCachedModels(res.data as CachedProviderModel[])
+        }
+      })
+      .catch(() => {
+        if (!canceled) setCachedModels([])
+      })
+
+    return () => {
+      canceled = true
+    }
+  }, [provider])
+
   const handleProviderChange = (newProvider: string) => {
     setProvider(newProvider)
     setModel('')
@@ -50,9 +80,9 @@ const ExpertEditor: React.FC<ExpertEditorProps> = ({ expert, onUpdate, onDelete 
   const handleModelChange = (newModel: string) => {
     setModel(newModel)
     if (provider && newModel) {
-      const modelInfo = findModel(provider, newModel)
+      const modelInfo = selectedProviderModels.find((item) => item.apiModelId === newModel)
       if (modelInfo) {
-        const st = modelInfo.supportsThinking ? 1 : 0
+        const st = modelInfo.supportsThinking === true ? 1 : 0
         setSupportsThinking(st)
         // 如果模型支持 thinking，则默认开启；不支持则关闭
         setThinkingEnabled(st)
@@ -89,7 +119,12 @@ const ExpertEditor: React.FC<ExpertEditorProps> = ({ expert, onUpdate, onDelete 
   }
 
   const selectedProviderModels = provider
-    ? PROVIDERS.find((p) => p.id === provider)?.models ?? []
+    && isProviderId(provider)
+    ? buildProviderModelOptions({
+      providerId: provider,
+      cachedModels,
+      customModelIds: model ? [model] : []
+    })
     : []
 
   return (
@@ -130,8 +165,8 @@ const ExpertEditor: React.FC<ExpertEditorProps> = ({ expert, onUpdate, onDelete 
           >
             <option value="">-- 未选择 --</option>
             {selectedProviderModels.map((m) => (
-              <option key={m.model} value={m.model}>
-                {m.displayName} ({m.model}) [{m.status ?? 'active'}]
+              <option key={m.apiModelId} value={m.apiModelId}>
+                {m.displayName} ({m.apiModelId}) [{m.status ?? 'active'}]
               </option>
             ))}
           </select>
@@ -139,19 +174,20 @@ const ExpertEditor: React.FC<ExpertEditorProps> = ({ expert, onUpdate, onDelete 
       </div>
 
       {provider && model && (() => {
-        const selected = findModel(provider, model)
+        const selected = selectedProviderModels.find((item) => item.apiModelId === model)
         if (!selected) return null
         const badges = [
-          selected.supportsThinking ? 'thinking' : '',
-          selected.supportsJson ? 'json' : '',
-          selected.supportsStreaming ? 'streaming' : '',
-          selected.supportsToolCalling ? 'tools' : '',
-          selected.supportsVision ? 'vision' : ''
+          selected.supportsThinking === true ? 'thinking' : '',
+          selected.supportsJson === true ? 'json' : '',
+          selected.supportsStreaming === true ? 'streaming' : '',
+          selected.supportsToolCalling === true ? 'tools' : '',
+          selected.supportsVision === true ? 'vision' : ''
         ].filter(Boolean)
         return (
-          <div className="form-hint">
+          <div className={`form-hint ${selected.status !== 'active' ? 'warning' : ''}`}>
             Status: {selected.status ?? 'active'} {badges.length > 0 ? `· ${badges.join(' / ')}` : ''}
             {selected.notes ? ` · ${selected.notes}` : ''}
+            {selected.status !== 'active' ? ' · Requires an exact successful provider test before real meetings.' : ''}
           </div>
         )
       })()}

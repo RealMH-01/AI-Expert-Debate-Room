@@ -46,7 +46,13 @@ export function maskApiKey(apiKey: string): string {
 }
 
 function isSensitiveKey(key: string): boolean {
-  return /apiKey|api[_-]?key|authorization|x-api-key|x-goog-api-key|defaultHeaders|bearer token|secret|token|auth|key/i.test(key)
+  return /^(apiKey|api_key|api-key|x-api-key|x-goog-api-key|authorization|access_token|refresh_token|id_token|bearer|token|secret|client_secret|auth|password|defaultHeaders)$/i.test(key)
+}
+
+function redactSensitiveString(value: string): string {
+  return value
+    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer ****')
+    .replace(/(sk|sk-ant|sk-proj|sk-live)-[A-Za-z0-9_-]{8,}/gi, '$1-****')
 }
 
 export function sanitizeSensitiveData<T>(value: T): T {
@@ -56,8 +62,14 @@ export function sanitizeSensitiveData<T>(value: T): T {
   if (value && typeof value === 'object') {
     const output: Record<string, unknown> = {}
     for (const [key, nestedValue] of Object.entries(value as Record<string, unknown>)) {
-      if (isSensitiveKey(key)) {
-        if (key === 'defaultHeaders' && nestedValue && typeof nestedValue === 'object') {
+      if (key === 'value_json' && typeof nestedValue === 'string') {
+        try {
+          output[key] = JSON.stringify(sanitizeSensitiveData(JSON.parse(nestedValue)))
+        } catch {
+          output[key] = redactSensitiveString(nestedValue)
+        }
+      } else if (isSensitiveKey(key)) {
+        if (key.toLowerCase() === 'defaultheaders' && nestedValue && typeof nestedValue === 'object') {
           output[key] = Object.fromEntries(
             Object.keys(nestedValue as Record<string, unknown>).map((headerKey) => [
               headerKey,
@@ -68,9 +80,7 @@ export function sanitizeSensitiveData<T>(value: T): T {
           output[key] = REDACTED
         }
       } else if (typeof nestedValue === 'string') {
-        output[key] = nestedValue
-          .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer ****')
-          .replace(/(sk|sk-ant|sk-proj|sk-live)-[A-Za-z0-9_-]{8,}/gi, '$1-****')
+        output[key] = redactSensitiveString(nestedValue)
       } else {
         output[key] = sanitizeSensitiveData(nestedValue)
       }

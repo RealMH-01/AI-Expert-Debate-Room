@@ -25,6 +25,7 @@ export type AgentProviderValidationContext = {
   providerEnabled?: boolean
   allowUnverifiedModels?: boolean
   lastTestStatus?: 'success' | 'failure'
+  lastTestedModel?: string
 }
 
 export type AgentProviderValidationResult = {
@@ -71,8 +72,11 @@ export function validateAgentProviderConfig(
   if (!context.allowUnverifiedModels) {
     return { ok: false, reason: `${agent.name}: model ${modelId} is unverified` }
   }
-  if (context.lastTestStatus !== 'success') {
-    return { ok: false, reason: `${agent.name}: unverified model ${modelId} has not passed connection test` }
+  if (context.lastTestStatus !== 'success' || context.lastTestedModel !== modelId) {
+    return {
+      ok: false,
+      reason: `${agent.name}: unverified model ${modelId} has not passed connection test for this exact model`
+    }
   }
   return { ok: true }
 }
@@ -149,7 +153,8 @@ export function validateProvidersReady(agents: Agent[]): string[] {
       providerConfigured: isProviderConfigured(providerId),
       providerEnabled: config?.enabled !== false,
       allowUnverifiedModels: config?.allowUnverifiedModels ?? false,
-      lastTestStatus: config?.lastTestStatus
+      lastTestStatus: config?.lastTestStatus,
+      lastTestedModel: config?.lastTestedModel
     })
     if (!result.ok) {
       errors.push(result.reason ?? `Invalid provider/model for ${agent.name}`)

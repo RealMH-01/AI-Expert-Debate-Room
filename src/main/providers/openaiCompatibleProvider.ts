@@ -9,6 +9,7 @@ import { getProviderConfig, updateProviderConfig } from './providerSettings'
 import type { ProviderTestResult } from './types'
 import { joinUrl, mapHttpStatusToErrorType, sanitizeErrorMessage } from './types'
 import { OpenAICompatibleAdapter } from './adapters/OpenAICompatibleAdapter'
+import { upsertTestedModel } from '../db/repositories/providerModelRepository'
 
 export { OpenAICompatibleAdapter as OpenAICompatibleProvider }
 
@@ -152,6 +153,12 @@ export async function testProviderConnection(
       lastTestError: '',
       lastTestAt: testedAt,
       lastTestedModel: testModel
+    })
+    upsertTestedModel({
+      providerId: typedProviderId,
+      modelId: testModel,
+      testedAt,
+      testStatus: 'success'
     })
     return { ok: true, providerId: typedProviderId, model: testModel, latencyMs, testedAt }
   } catch (error) {
