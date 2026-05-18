@@ -40,6 +40,8 @@ export interface NormalizedProviderDebateOutput {
 
 const ATTACK_DIMENSION_SET = new Set<string>(ATTACK_DIMENSIONS)
 const CLAIM_STATUSES = new Set<string>(['active', 'revised', 'abandoned'])
+const PARSE_FAILED_MESSAGE = '[结构化输出解析失败] 该专家本轮输出不是合法 JSON，已隐藏原始输出。请提高输出上限或重试。'
+const RAW_OUTPUT_PREVIEW_LIMIT = 4000
 
 export function normalizeProviderDebateOutput(
   output: Pick<DebateGenerateOutput, 'content' | 'structuredJson'>
@@ -49,16 +51,28 @@ export function normalizeProviderDebateOutput(
     : parseJsonObject(output.content)
 
   if (!parsed.value) {
+    const structuredJson = buildParseFailedStructuredJson(output.content, parsed.error)
     return {
-      message: output.content,
+      message: PARSE_FAILED_MESSAGE,
       claims: [],
       attacks: [],
-      structuredJson: null,
+      structuredJson,
       parseError: parsed.error
     }
   }
 
-  const message = readString(parsed.value.message) || output.content
+  const message = readString(parsed.value.message)
+  if (!message) {
+    const error = 'Parsed JSON is missing a non-empty message field'
+    return {
+      message: PARSE_FAILED_MESSAGE,
+      claims: [],
+      attacks: [],
+      structuredJson: buildParseFailedStructuredJson(output.content, error),
+      parseError: error
+    }
+  }
+
   const claims = normalizeClaims(parsed.value.claims)
   const attacks = normalizeAttacks(parsed.value.attacks)
 
@@ -66,11 +80,7 @@ export function normalizeProviderDebateOutput(
     message,
     claims,
     attacks,
-    structuredJson: {
-      message,
-      claims,
-      attacks
-    }
+    structuredJson: parsed.value
   }
 }
 
@@ -138,6 +148,7 @@ function parseJsonObject(content: string): {
     candidates.unshift(codeBlock[1].trim())
   }
 
+  let lastError: string | undefined
   for (const candidate of candidates) {
     if (!candidate.startsWith('{')) continue
     try {
@@ -145,15 +156,35 @@ function parseJsonObject(content: string): {
       if (isRecord(parsed)) {
         return { value: parsed }
       }
+      lastError = 'Parsed JSON is not an object'
     } catch (error) {
-      return {
-        value: null,
-        error: error instanceof Error ? error.message : 'JSON parse failed'
-      }
+      lastError = error instanceof Error ? error.message : 'JSON parse failed'
     }
   }
 
-  return { value: null }
+  return { value: null, error: lastError }
+}
+
+function buildParseFailedStructuredJson(
+  raw: string,
+  error: string | undefined
+): Record<string, unknown> {
+  const structuredJson: Record<string, unknown> = {
+    type: 'expert_output_parse_failed',
+    hiddenFromTranscript: true,
+    rawLength: raw.length,
+    error: error ?? 'No JSON object found'
+  }
+
+  if (raw.length > RAW_OUTPUT_PREVIEW_LIMIT) {
+    structuredJson.rawPreview = raw.slice(0, RAW_OUTPUT_PREVIEW_LIMIT)
+    structuredJson.rawTruncated = true
+  } else {
+    structuredJson.raw = raw
+    structuredJson.rawTruncated = false
+  }
+
+  return structuredJson
 }
 
 function readString(value: unknown): string | null {

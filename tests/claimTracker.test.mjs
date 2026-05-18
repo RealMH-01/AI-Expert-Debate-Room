@@ -41,7 +41,7 @@ test('normalizes structured provider output and keeps at most three readable cla
   assert.deepEqual(result.attacks[1].attack_dimensions, ['unknown'])
 })
 
-test('parses JSON content and falls back to raw message when parsing fails', () => {
+test('parses JSON content and hides raw message when parsing fails', () => {
   const parsed = normalizeProviderDebateOutput({
     content: JSON.stringify({
       message: 'JSON 中的正文',
@@ -55,9 +55,11 @@ test('parses JSON content and falls back to raw message when parsing fails', () 
   const fallback = normalizeProviderDebateOutput({
     content: '{ this is not valid json'
   })
-  assert.equal(fallback.message, '{ this is not valid json')
+  assert.match(fallback.message, /结构化输出解析失败/)
   assert.deepEqual(fallback.claims, [])
   assert.deepEqual(fallback.attacks, [])
+  assert.equal(fallback.structuredJson.type, 'expert_output_parse_failed')
+  assert.equal(fallback.structuredJson.hiddenFromTranscript, true)
 })
 
 test('normalizes attack dimensions to known labels or unknown', () => {
