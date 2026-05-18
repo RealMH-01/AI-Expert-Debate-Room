@@ -1,8 +1,8 @@
-/**
+﻿/**
  * 数据库 Schema 定义
  *
  * 包含所有基础数据表的 CREATE TABLE 语句。
- * 表设计遵循开发契约 第六节 中的数据表设计。
+ * 表设计遵循开发公约（第六节）中的数据表设计。
  *
  * 注意事项：
  * 1. messages.speaker_id 允许为空，支持 system 类型消息
@@ -183,7 +183,7 @@ CREATE TABLE IF NOT EXISTS attacks (
 );
 
 -- ============================
--- 全局设置
+-- Context Summaries
 -- ============================
 CREATE TABLE IF NOT EXISTS context_summaries (
   id                         TEXT PRIMARY KEY,
@@ -269,6 +269,23 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 
 -- ============================
+-- Provider 远程模型缓存
+-- ============================
+CREATE TABLE IF NOT EXISTS provider_models (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  provider_id TEXT NOT NULL,
+  model_id TEXT NOT NULL,
+  display_name TEXT,
+  status TEXT NOT NULL DEFAULT 'unverified',
+  capabilities_json TEXT,
+  source TEXT NOT NULL,
+  last_fetched_at TEXT NOT NULL,
+  last_test_status TEXT,
+  last_test_at TEXT,
+  UNIQUE(provider_id, model_id)
+);
+
+-- ============================
 -- 索引
 -- ============================
 CREATE INDEX IF NOT EXISTS idx_agents_room_id ON agents(room_id);
@@ -287,4 +304,5 @@ CREATE INDEX IF NOT EXISTS idx_model_call_usage_meeting ON model_call_usage(meet
 CREATE INDEX IF NOT EXISTS idx_memory_suggestions_meeting_status ON memory_suggestions(meeting_id, status);
 CREATE INDEX IF NOT EXISTS idx_project_memory_items_status_category ON project_memory_items(status, category);
 CREATE INDEX IF NOT EXISTS idx_user_interventions_meeting_created ON user_interventions(meeting_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_provider_models_provider ON provider_models(provider_id);
 `;

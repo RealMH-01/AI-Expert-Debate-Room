@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 数据库迁移管理
  *
  * 使用 app_meta 表记录迁移版本。
@@ -205,6 +205,27 @@ CREATE INDEX IF NOT EXISTS idx_memory_suggestions_meeting_status ON memory_sugge
 CREATE INDEX IF NOT EXISTS idx_project_memory_items_status_category ON project_memory_items(status, category);
 CREATE INDEX IF NOT EXISTS idx_user_interventions_meeting_created ON user_interventions(meeting_id, created_at);
 `
+  },
+  {
+    version: 6,
+    name: 'add provider model cache',
+    sql: `
+CREATE TABLE IF NOT EXISTS provider_models (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  provider_id TEXT NOT NULL,
+  model_id TEXT NOT NULL,
+  display_name TEXT,
+  status TEXT NOT NULL DEFAULT 'unverified',
+  capabilities_json TEXT,
+  source TEXT NOT NULL,
+  last_fetched_at TEXT NOT NULL,
+  last_test_status TEXT,
+  last_test_at TEXT,
+  UNIQUE(provider_id, model_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_provider_models_provider ON provider_models(provider_id);
+`
   }
 ]
 
@@ -213,7 +234,6 @@ CREATE INDEX IF NOT EXISTS idx_user_interventions_meeting_created ON user_interv
  */
 function getCurrentVersion(db: Database.Database): number {
   try {
-    // 首先检查 app_meta 表是否存在
     const tableExists = db
       .prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='app_meta'"
@@ -244,12 +264,20 @@ function setCurrentVersion(db: Database.Database, version: number): void {
   ).run(String(version), now)
 }
 
-function ensureVersion5Tables(db: Database.Database, currentVersion: number): void {
-  if (currentVersion < 5) return
+/**
+ * 合并后安全网：幂等确保 v3-v6 所有表存在。
+ * 处理边缘情况：数据库之前可能跑过不同的版本编号方案。
+ * 所有语句都是 CREATE IF NOT EXISTS，运行永远安全。
+ */
+function ensurePostMergeTables(db: Database.Database): void {
+  const currentVersion = getCurrentVersion(db)
+  if (currentVersion < 3) return
 
-  const migration = MIGRATIONS.find((m) => m.version === 5)
-  if (!migration) return
-  db.exec(migration.sql)
+  for (const migration of MIGRATIONS) {
+    if (migration.version >= 3) {
+      db.exec(migration.sql)
+    }
+  }
 }
 
 /**
@@ -263,7 +291,7 @@ export function runMigrations(db: Database.Database): void {
   const pendingMigrations = MIGRATIONS.filter((m) => m.version > currentVersion)
 
   if (pendingMigrations.length === 0) {
-    ensureVersion5Tables(db, currentVersion)
+    ensurePostMergeTables(db)
     console.log('[Migrations] 数据库已是最新版本，无需迁移')
     return
   }
@@ -275,7 +303,6 @@ export function runMigrations(db: Database.Database): void {
       `[Migrations] 执行迁移 v${migration.version}: ${migration.name}`
     )
 
-    // 使用事务确保原子性
     const runMigration = db.transaction(() => {
       db.exec(migration.sql)
       setCurrentVersion(db, migration.version)
@@ -286,9 +313,10 @@ export function runMigrations(db: Database.Database): void {
     console.log(`[Migrations] 迁移 v${migration.version} 完成`)
   }
 
+  ensurePostMergeTables(db)
+
   console.log('[Migrations] 所有迁移执行完毕')
 
-  // 记录初始化时间
   const now = new Date().toISOString()
   db.prepare(
     `INSERT OR REPLACE INTO app_meta (key, value, updated_at) VALUES ('initialized_at', ?, ?)`

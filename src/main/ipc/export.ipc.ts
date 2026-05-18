@@ -14,6 +14,7 @@ import * as historyRepo from '../db/repositories/historyRepository'
 import { generateSessionMarkdown, generateExportFilename } from '../export/markdownExporter'
 import { buildSessionReview } from '../review/sessionReviewBuilder'
 import { getDatabasePath, getDatabase } from '../db/sqlite'
+import { sanitizeSensitiveData } from '../providers/providerSettings'
 
 export function registerExportIpc(): void {
   // 导出 Markdown
@@ -92,21 +93,14 @@ export function registerExportIpc(): void {
         updated_at: string
       }>
       const settingsSafe = settingsRaw.map((s) => {
-        if (s.key === 'provider_configs') {
-          // 过滤 API Key
-          try {
-            const configs = JSON.parse(s.value_json || '[]')
-            const safeConfigs = configs.map((c: Record<string, unknown>) => ({
-              ...c,
-              apiKey: c.apiKey ? '****REDACTED****' : '',
-              defaultHeaders: {} // 过滤可能包含 Authorization 的 headers
-            }))
-            return { ...s, value_json: JSON.stringify(safeConfigs) }
-          } catch {
-            return { ...s, value_json: '[]' }
+        try {
+          return {
+            ...s,
+            value_json: JSON.stringify(sanitizeSensitiveData(JSON.parse(s.value_json || 'null')))
           }
+        } catch {
+          return s.key === 'provider_configs' ? { ...s, value_json: '[]' } : s
         }
-        return s
       })
 
       const data = {
@@ -130,7 +124,7 @@ export function registerExportIpc(): void {
         settings: settingsSafe
       }
 
-      const jsonStr = JSON.stringify(data, null, 2)
+      const jsonStr = JSON.stringify(sanitizeSensitiveData(data), null, 2)
 
       // Show save dialog
       const mainWindow = BrowserWindow.getAllWindows()[0]

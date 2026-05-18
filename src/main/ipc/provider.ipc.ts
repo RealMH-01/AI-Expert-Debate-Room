@@ -20,6 +20,12 @@ import {
 } from '../providers/providerSettings'
 import { testProviderConnection } from '../providers/openaiCompatibleProvider'
 import { clearProviderCache } from '../providers/providerFactory'
+import { refreshProviderModels } from '../providers/modelListFetcher'
+import {
+  getCachedProviderModels,
+  upsertRefreshedModels
+} from '../db/repositories/providerModelRepository'
+import { isProviderId } from '../../shared/providers/modelRegistry'
 
 export function registerProviderIpc(): void {
   // 获取所有 Provider 配置（安全版）
@@ -56,6 +62,7 @@ export function registerProviderIpc(): void {
         defaultHeaders?: Record<string, string>
         timeout?: number
         enabled?: boolean
+        allowUnverifiedModels?: boolean
       }
     ) => {
       try {
@@ -66,7 +73,8 @@ export function registerProviderIpc(): void {
           baseUrl: params.baseUrl || '',
           defaultHeaders: params.defaultHeaders || {},
           timeout: params.timeout || 60000,
-          enabled: params.enabled !== false
+          enabled: params.enabled !== false,
+          allowUnverifiedModels: params.allowUnverifiedModels === true
         })
 
         // 清除缓存，下次使用时会用新配置
@@ -95,11 +103,32 @@ export function registerProviderIpc(): void {
   })
 
   // 测试 Provider 连接
-  ipcMain.handle(IPC_CHANNELS.PROVIDER_TEST_CONNECTION, async (_event, providerId: string) => {
+  ipcMain.handle(IPC_CHANNELS.PROVIDER_TEST_CONNECTION, async (_event, providerId: string, model?: string) => {
     try {
       console.log(`[ProviderIPC] 测试连接: ${providerId}`)
-      const result = await testProviderConnection(providerId)
+      const result = await testProviderConnection(providerId, model)
       return { success: true, data: result }
+    } catch (error: unknown) {
+      return { success: false, error: (error as Error).message }
+    }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.PROVIDER_REFRESH_MODELS, async (_event, providerId: string) => {
+    try {
+      if (!isProviderId(providerId)) {
+        return { success: false, error: `Unknown provider "${providerId}"` }
+      }
+      const result = await refreshProviderModels(providerId)
+      upsertRefreshedModels(result)
+      return { success: true, data: result }
+    } catch (error: unknown) {
+      return { success: false, error: (error as Error).message }
+    }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.PROVIDER_GET_CACHED_MODELS, async (_event, providerId: string) => {
+    try {
+      return { success: true, data: getCachedProviderModels(providerId) }
     } catch (error: unknown) {
       return { success: false, error: (error as Error).message }
     }

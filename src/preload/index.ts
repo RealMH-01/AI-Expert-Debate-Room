@@ -143,11 +143,16 @@ const api = {
     defaultHeaders?: Record<string, string>
     timeout?: number
     enabled?: boolean
+    allowUnverifiedModels?: boolean
   }) => ipcRenderer.invoke('provider:save-config', params),
   providerDeleteConfig: (providerId: string) =>
     ipcRenderer.invoke('provider:delete-config', providerId),
-  providerTestConnection: (providerId: string) =>
-    ipcRenderer.invoke('provider:test-connection', providerId)
+  providerTestConnection: (providerId: string, model?: string) =>
+    ipcRenderer.invoke('provider:test-connection', providerId, model),
+  providerRefreshModels: (providerId: string) =>
+    ipcRenderer.invoke('provider:refresh-models', providerId),
+  providerGetCachedModels: (providerId: string) =>
+    ipcRenderer.invoke('provider:get-cached-models', providerId)
 }
 
 export type ElectronAPI = typeof api
