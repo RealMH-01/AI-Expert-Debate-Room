@@ -11,6 +11,11 @@ import type { Session } from '../../../shared/types'
 import type { AttackRecord, ClaimRecord } from './claimRepository'
 import type { ContextSummaryRecord } from './contextSummaryRepository'
 import type { ModelCallUsageRecord } from './modelCallUsageRepository'
+import type {
+  MemorySuggestionRecord,
+  ProjectMemoryItemRecord,
+  UserInterventionRecord
+} from '../../memory/projectMemory'
 
 export interface HistorySessionItem {
   id: string
@@ -119,6 +124,9 @@ export interface SessionFullDetail {
   attacks: AttackRecord[]
   context_summaries: ContextSummaryRecord[]
   model_call_usage: ModelCallUsageRecord[]
+  memory_suggestions: MemorySuggestionRecord[]
+  project_memory_items: ProjectMemoryItemRecord[]
+  user_interventions: UserInterventionRecord[]
   review: SessionReviewRecord | null
 }
 
@@ -265,6 +273,30 @@ export function getSessionFullDetail(sessionId: string): SessionFullDetail | nul
     )
     .all(sessionId) as ModelCallUsageRecord[]
 
+  const memory_suggestions = db
+    .prepare(
+      `SELECT * FROM memory_suggestions
+       WHERE meeting_id = ?
+       ORDER BY created_at ASC`
+    )
+    .all(sessionId) as MemorySuggestionRecord[]
+
+  const project_memory_items = db
+    .prepare(
+      `SELECT * FROM project_memory_items
+       WHERE status <> 'deleted'
+       ORDER BY status ASC, category ASC, created_at DESC`
+    )
+    .all() as ProjectMemoryItemRecord[]
+
+  const user_interventions = db
+    .prepare(
+      `SELECT * FROM user_interventions
+       WHERE meeting_id = ?
+       ORDER BY created_at ASC`
+    )
+    .all(sessionId) as UserInterventionRecord[]
+
   const review = db
     .prepare('SELECT * FROM session_reviews WHERE session_id = ? ORDER BY created_at DESC LIMIT 1')
     .get(sessionId) as SessionReviewRecord | undefined
@@ -281,6 +313,9 @@ export function getSessionFullDetail(sessionId: string): SessionFullDetail | nul
     attacks,
     context_summaries,
     model_call_usage,
+    memory_suggestions,
+    project_memory_items,
+    user_interventions,
     review: review ?? null
   }
 }
@@ -297,6 +332,8 @@ export function deleteSession(sessionId: string): boolean {
 
   const deleteTxn = db.transaction(() => {
     db.prepare('DELETE FROM session_reviews WHERE session_id = ?').run(sessionId)
+    db.prepare('DELETE FROM user_interventions WHERE meeting_id = ?').run(sessionId)
+    db.prepare('DELETE FROM memory_suggestions WHERE meeting_id = ?').run(sessionId)
     db.prepare('DELETE FROM model_call_usage WHERE meeting_id = ?').run(sessionId)
     db.prepare('DELETE FROM context_summaries WHERE meeting_id = ?').run(sessionId)
     db.prepare('DELETE FROM attacks WHERE meeting_id = ?').run(sessionId)

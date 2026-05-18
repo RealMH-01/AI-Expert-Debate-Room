@@ -16,6 +16,7 @@
  */
 
 import React, { useEffect, useState } from 'react'
+import { getSpectatorCapabilities } from '../utils/spectatorMode'
 
 interface SessionDetailProps {
   sessionId: string
@@ -44,6 +45,9 @@ interface SessionFullDetail {
   attacks: DetailAttack[]
   context_summaries: DetailContextSummary[]
   model_call_usage: DetailModelCallUsage[]
+  memory_suggestions: DetailMemorySuggestion[]
+  project_memory_items: DetailProjectMemoryItem[]
+  user_interventions: DetailUserIntervention[]
   review: { id: string; session_id: string; review_json: string; markdown: string | null; created_at: string; updated_at: string } | null
 }
 
@@ -165,6 +169,43 @@ interface DetailModelCallUsage {
   created_at: string
 }
 
+interface DetailMemorySuggestion {
+  id: string
+  meeting_id: string
+  content: string
+  category: 'core_canon' | 'confirmed_setting' | 'tentative_idea' | 'rejected_idea'
+  source_summary: string
+  status: 'pending' | 'accepted' | 'rejected' | 'edited'
+  edited_content: string | null
+  created_at: string
+  updated_at: string
+  decided_at: string | null
+}
+
+interface DetailProjectMemoryItem {
+  id: string
+  content: string
+  category: 'core_canon' | 'confirmed_setting' | 'tentative_idea' | 'rejected_idea'
+  source_suggestion_id: string | null
+  source_meeting_id: string | null
+  status: 'active' | 'disabled' | 'deleted'
+  created_at: string
+  updated_at: string
+}
+
+interface DetailUserIntervention {
+  id: string
+  meeting_id: string
+  phase: string
+  round_index: number | null
+  type: string
+  content: string
+  target_expert_id: string | null
+  status: 'pending' | 'applied' | 'dismissed' | 'failed'
+  created_at: string
+  applied_at: string | null
+}
+
 interface UsageGroup {
   provider: string
   model: string
@@ -209,6 +250,15 @@ const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId, onBack }) => {
   const [exporting, setExporting] = useState(false)
   const [exportMsg, setExportMsg] = useState<string | null>(null)
   const [activeSection, setActiveSection] = useState<string>('overview')
+  const [spectatorMode, setSpectatorMode] = useState(false)
+  const [actionMsg, setActionMsg] = useState<string | null>(null)
+  const [editingSuggestionId, setEditingSuggestionId] = useState<string | null>(null)
+  const [editingSuggestionText, setEditingSuggestionText] = useState('')
+  const [interventionType, setInterventionType] = useState('note_only')
+  const [interventionContent, setInterventionContent] = useState('')
+  const [interventionTarget, setInterventionTarget] = useState('')
+
+  const capabilities = getSpectatorCapabilities(spectatorMode)
 
   useEffect(() => {
     const load = async () => {
@@ -230,6 +280,15 @@ const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId, onBack }) => {
     load()
   }, [sessionId])
 
+  const refreshDetail = async () => {
+    const res = await window.api.historyGetDetail(sessionId)
+    if (res.success && res.data) {
+      setDetail(res.data as SessionFullDetail)
+    } else {
+      setActionMsg(res.error || 'Reload failed')
+    }
+  }
+
   const handleExportMarkdown = async () => {
     setExporting(true)
     setExportMsg(null)
@@ -248,6 +307,71 @@ const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId, onBack }) => {
       setExportMsg(`导出失败: ${(e as Error).message}`)
     } finally {
       setExporting(false)
+    }
+  }
+
+  const handleAcceptSuggestion = async (suggestionId: string, editedContent?: string | null) => {
+    if (!capabilities.canDecideMemory) return
+    const res = await window.api.memoryAcceptSuggestion({ suggestionId, editedContent })
+    if (res.success) {
+      setActionMsg('Memory suggestion accepted.')
+      setEditingSuggestionId(null)
+      setEditingSuggestionText('')
+      await refreshDetail()
+    } else {
+      setActionMsg(res.error || 'Accept failed.')
+    }
+  }
+
+  const handleRejectSuggestion = async (suggestionId: string) => {
+    if (!capabilities.canDecideMemory) return
+    const res = await window.api.memoryRejectSuggestion(suggestionId)
+    if (res.success) {
+      setActionMsg('Memory suggestion rejected.')
+      await refreshDetail()
+    } else {
+      setActionMsg(res.error || 'Reject failed.')
+    }
+  }
+
+  const handleDisableMemory = async (itemId: string) => {
+    if (!capabilities.canManageProjectMemory) return
+    const res = await window.api.memoryDisableItem(itemId)
+    if (res.success) {
+      setActionMsg('Project memory disabled.')
+      await refreshDetail()
+    } else {
+      setActionMsg(res.error || 'Disable failed.')
+    }
+  }
+
+  const handleDeleteMemory = async (itemId: string) => {
+    if (!capabilities.canManageProjectMemory) return
+    const res = await window.api.memoryDeleteItem(itemId)
+    if (res.success) {
+      setActionMsg('Project memory deleted.')
+      await refreshDetail()
+    } else {
+      setActionMsg(res.error || 'Delete failed.')
+    }
+  }
+
+  const handleSubmitIntervention = async () => {
+    if (!capabilities.canSubmitIntervention || !interventionContent.trim()) return
+    const res = await window.api.userInterventionCreate({
+      meetingId: sessionId,
+      type: interventionType,
+      content: interventionContent.trim(),
+      targetExpertId: interventionTarget || null,
+      roundIndex: null
+    })
+    if (res.success) {
+      setActionMsg('User intervention saved.')
+      setInterventionContent('')
+      setInterventionTarget('')
+      await refreshDetail()
+    } else {
+      setActionMsg(res.error || 'Intervention save failed.')
     }
   }
 
@@ -278,10 +402,16 @@ const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId, onBack }) => {
     claims,
     attacks,
     context_summaries,
-    model_call_usage
+    model_call_usage,
+    memory_suggestions,
+    project_memory_items,
+    user_interventions
   } = detail
   const contextSummaries = context_summaries || []
   const modelCallUsage = model_call_usage || []
+  const memorySuggestions = memory_suggestions || []
+  const projectMemoryItems = project_memory_items || []
+  const userInterventions = user_interventions || []
   const sessionContextSummary = contextSummaries.find((summary) => summary.scope === 'session')
   const moderator = participants.find((p) => p.role === 'moderator')
   const experts = participants.filter((p) => p.role === 'expert')
@@ -370,7 +500,8 @@ const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId, onBack }) => {
     { id: 'transcript', label: '发言记录' },
     { id: 'voting', label: '投票结果' },
     { id: 'settlement', label: 'HP结算' },
-    { id: 'review', label: '结构化复盘' }
+    { id: 'review', label: '结构化复盘' },
+    { id: 'memory', label: '记忆 / 干预' }
   ]
 
   return (
@@ -380,6 +511,12 @@ const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId, onBack }) => {
         <button className="btn btn-small" onClick={onBack}>← 返回列表</button>
         <h2>{session.title}</h2>
         <div className="session-detail-actions">
+          <button
+            className={`btn btn-small ${spectatorMode ? 'btn-secondary' : 'btn-ghost'}`}
+            onClick={() => setSpectatorMode((value) => !value)}
+          >
+            {spectatorMode ? '旁听模式：只读' : '开启旁听模式'}
+          </button>
           <button
             className="btn btn-primary btn-small"
             onClick={handleExportMarkdown}
@@ -393,6 +530,18 @@ const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId, onBack }) => {
       {exportMsg && (
         <div className={`export-message ${exportMsg.includes('失败') ? 'error' : 'success'}`}>
           {exportMsg}
+        </div>
+      )}
+
+      {spectatorMode && (
+        <div className="readonly-banner">
+          旁听模式：只读。此视角可以查看会议详情、记忆状态和干预历史，但不能提交干预或更改项目记忆。
+        </div>
+      )}
+
+      {actionMsg && (
+        <div className="export-message success">
+          {actionMsg}
         </div>
       )}
 
@@ -898,6 +1047,200 @@ const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId, onBack }) => {
             )}
           </div>
         )}
+
+        {activeSection === 'memory' && (
+          <div className="detail-section">
+            <div className="detail-card">
+              <h4>项目记忆建议</h4>
+              <p className="placeholder-text">项目记忆建议默认 pending，只有用户接受或编辑后接受才会进入正式项目记忆。</p>
+              {memorySuggestions.length === 0 ? (
+                <p className="placeholder-text">当前会议没有项目记忆建议。</p>
+              ) : (
+                <div className="memory-list">
+                  {memorySuggestions.map((suggestion) => (
+                    <div key={suggestion.id} className="memory-item">
+                      <div className="memory-item-header">
+                        <span className="memory-category">{formatMemoryCategory(suggestion.category)}</span>
+                        <span className={`memory-status ${suggestion.status}`}>{suggestion.status}</span>
+                      </div>
+                      <div className="detail-content-block">
+                        {suggestion.edited_content || suggestion.content}
+                      </div>
+                      <div className="memory-source">Source: {suggestion.source_summary}</div>
+                      {editingSuggestionId === suggestion.id ? (
+                        <div className="memory-edit-box">
+                          <textarea
+                            className="memory-textarea"
+                            value={editingSuggestionText}
+                            onChange={(event) => setEditingSuggestionText(event.target.value)}
+                            disabled={!capabilities.canDecideMemory}
+                          />
+                          <div className="memory-actions">
+                            <button
+                              className="btn btn-primary btn-small"
+                              disabled={!capabilities.canDecideMemory || !editingSuggestionText.trim()}
+                              onClick={() => handleAcceptSuggestion(suggestion.id, editingSuggestionText)}
+                            >
+                              编辑后接受
+                            </button>
+                            <button
+                              className="btn btn-small"
+                              onClick={() => {
+                                setEditingSuggestionId(null)
+                                setEditingSuggestionText('')
+                              }}
+                            >
+                              取消
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="memory-actions">
+                          <button
+                            className="btn btn-primary btn-small"
+                            disabled={!capabilities.canDecideMemory || suggestion.status !== 'pending'}
+                            onClick={() => handleAcceptSuggestion(suggestion.id)}
+                          >
+                            接受
+                          </button>
+                          <button
+                            className="btn btn-small"
+                            disabled={!capabilities.canDecideMemory || suggestion.status !== 'pending'}
+                            onClick={() => handleRejectSuggestion(suggestion.id)}
+                          >
+                            拒绝
+                          </button>
+                          <button
+                            className="btn btn-small btn-secondary"
+                            disabled={!capabilities.canDecideMemory || suggestion.status !== 'pending'}
+                            onClick={() => {
+                              setEditingSuggestionId(suggestion.id)
+                              setEditingSuggestionText(suggestion.edited_content || suggestion.content)
+                            }}
+                          >
+                            编辑后接受
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="detail-card">
+              <h4>项目记忆</h4>
+              <p className="placeholder-text">项目记忆由用户确认后生效；disabled / deleted 不进入后续上下文。</p>
+              {projectMemoryItems.length === 0 ? (
+                <p className="placeholder-text">当前没有正式项目记忆。</p>
+              ) : (
+                <div className="memory-list">
+                  {projectMemoryItems.map((item) => (
+                    <div key={item.id} className="memory-item">
+                      <div className="memory-item-header">
+                        <span className="memory-category">{formatMemoryCategory(item.category)}</span>
+                        <span className={`memory-status ${item.status}`}>{item.status}</span>
+                      </div>
+                      <div className="detail-content-block">{item.content}</div>
+                      <div className="memory-actions">
+                        <button
+                          className="btn btn-small"
+                          disabled={!capabilities.canManageProjectMemory || item.status !== 'active'}
+                          onClick={() => handleDisableMemory(item.id)}
+                        >
+                          禁用
+                        </button>
+                        <button
+                          className="btn btn-small btn-secondary"
+                          disabled={!capabilities.canManageProjectMemory || item.status === 'deleted'}
+                          onClick={() => handleDeleteMemory(item.id)}
+                        >
+                          删除
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="detail-card">
+              <h4>用户干预入口</h4>
+              <p className="placeholder-text">干预会作为事件保存，不会改写历史消息，不会直接改变 HP、投票、议事权或排名。</p>
+              <p className="placeholder-text">当前版本中，仅记录备注和补充信息会标记为 applied；追加辩论、提前总结、否决总结会先保存为 pending，供下一步处理。</p>
+              <div className="intervention-form">
+                <select
+                  value={interventionType}
+                  onChange={(event) => setInterventionType(event.target.value)}
+                  disabled={!capabilities.canSubmitIntervention}
+                >
+                  <option value="note_only">仅记录备注</option>
+                  <option value="add_information">补充信息</option>
+                  <option value="request_extra_round">要求追加一轮辩论</option>
+                  <option value="request_early_summary">要求提前总结</option>
+                  <option value="reject_moderator_summary">否决主理人总结</option>
+                </select>
+                <select
+                  value={interventionTarget}
+                  onChange={(event) => setInterventionTarget(event.target.value)}
+                  disabled={!capabilities.canSubmitIntervention}
+                >
+                  <option value="">不指定专家</option>
+                  {experts.map((expert) => (
+                    <option key={expert.agent_id} value={expert.agent_id}>{expert.name}</option>
+                  ))}
+                </select>
+                <textarea
+                  className="memory-textarea"
+                  value={interventionContent}
+                  onChange={(event) => setInterventionContent(event.target.value)}
+                  placeholder="写下用户补充信息、否定意见或流程要求"
+                  disabled={!capabilities.canSubmitIntervention}
+                />
+                <button
+                  className="btn btn-primary btn-small"
+                  disabled={!capabilities.canSubmitIntervention || !interventionContent.trim()}
+                  onClick={handleSubmitIntervention}
+                >
+                  保存干预
+                </button>
+              </div>
+              {!capabilities.canSubmitIntervention && (
+                <p className="placeholder-text">旁听模式下不能提交用户干预。</p>
+              )}
+            </div>
+
+            <div className="detail-card">
+              <h4>用户干预历史</h4>
+              {userInterventions.length === 0 ? (
+                <p className="placeholder-text">当前会议没有用户干预记录。</p>
+              ) : (
+                <table className="detail-table">
+                  <thead>
+                    <tr>
+                      <th>时间</th>
+                      <th>类型</th>
+                      <th>状态</th>
+                      <th>目标专家</th>
+                      <th>内容</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {userInterventions.map((item) => (
+                      <tr key={item.id}>
+                        <td>{formatTime(item.created_at)}</td>
+                        <td>{formatInterventionType(item.type)}</td>
+                        <td>{item.status}</td>
+                        <td>{item.target_expert_id ? nameMap.get(item.target_expert_id) || item.target_expert_id.slice(0, 8) : '-'}</td>
+                        <td>{item.content}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -1013,6 +1356,29 @@ function formatInteger(value: number): string {
 function safeNumber(value: number | null | undefined): number {
   if (typeof value !== 'number' || Number.isNaN(value)) return 0
   return Math.max(0, value)
+}
+
+function formatMemoryCategory(category: string): string {
+  const map: Record<string, string> = {
+    core_canon: '核心设定',
+    confirmed_setting: '已确认设定',
+    tentative_idea: '暂定想法',
+    rejected_idea: '已拒绝想法'
+  }
+  return map[category] || category
+}
+
+function formatInterventionType(type: string): string {
+  const map: Record<string, string> = {
+    add_information: '补充信息',
+    ask_expert_focus: '专家重点回应',
+    request_extra_round: '追加辩论',
+    request_early_summary: '提前总结',
+    reject_moderator_summary: '否决主理人总结',
+    terminate_session: '终止会议',
+    note_only: '仅记录备注'
+  }
+  return map[type] || type
 }
 
 export default SessionDetail

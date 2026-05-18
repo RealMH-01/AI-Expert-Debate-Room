@@ -53,6 +53,7 @@ import type { SingleVote, SettlementResult } from '../voting/voteTypes'
 import { normalizeProviderDebateOutput } from '../claims/claimTracker'
 import { buildSessionContextSummary } from '../context/contextCompressor'
 import { trackModelCallUsage } from '../cost/usageTracker'
+import { ensureMemorySuggestionsForMeeting } from '../memory/projectMemory'
 
 /**
  * 会议运行中的回调接口
@@ -1593,8 +1594,10 @@ function generateSessionReviewOnFinish(sessionId: string, roomId: string): void 
     generateContextSummaryOnFinish(detail, reviewData)
 
     const refreshedDetail = historyRepo.getSessionFullDetail(sessionId) ?? detail
+    generateMemorySuggestionsOnFinish(refreshedDetail)
+    const detailWithMemory = historyRepo.getSessionFullDetail(sessionId) ?? refreshedDetail
     const reviewJson = JSON.stringify(reviewData)
-    const markdown = generateSessionMarkdown(refreshedDetail, reviewData)
+    const markdown = generateSessionMarkdown(detailWithMemory, reviewData)
 
     reviewRepo.insertReview({
       sessionId,
@@ -1606,6 +1609,16 @@ function generateSessionReviewOnFinish(sessionId: string, roomId: string): void 
   } catch (error) {
     console.error('[DebateEngine] 生成复盘失败:', error)
     // Don't throw - review generation failure shouldn't break the session
+  }
+}
+
+function generateMemorySuggestionsOnFinish(detail: historyRepo.SessionFullDetail): void {
+  try {
+    const db = getDatabase()
+    ensureMemorySuggestionsForMeeting(db, detail, 5)
+    console.log(`[DebateEngine] Session ${detail.session.id} memory suggestions generated`)
+  } catch (error) {
+    console.error('[DebateEngine] Memory suggestion generation failed:', error)
   }
 }
 

@@ -99,6 +99,19 @@ export interface ElectronAPI {
   historyGetRoomsForFilter: () => Promise<IpcResponse<Array<{ id: string; name: string }>>>
   historyGetReview: (sessionId: string) => Promise<IpcResponse<unknown>>
 
+  // Project Memory / User Intervention
+  memoryAcceptSuggestion: (params: { suggestionId: string; editedContent?: string | null }) => Promise<IpcResponse<unknown>>
+  memoryRejectSuggestion: (suggestionId: string) => Promise<IpcResponse<unknown>>
+  memoryDisableItem: (itemId: string) => Promise<IpcResponse<unknown>>
+  memoryDeleteItem: (itemId: string) => Promise<IpcResponse<unknown>>
+  userInterventionCreate: (params: {
+    meetingId: string
+    type: string
+    content: string
+    targetExpertId?: string | null
+    roundIndex?: number | null
+  }) => Promise<IpcResponse<unknown>>
+
   // Export
   exportMarkdown: (sessionId: string) => Promise<IpcResponse<{ canceled?: boolean; filePath?: string; size?: number }>>
   exportGetDbPath: () => Promise<IpcResponse<string>>

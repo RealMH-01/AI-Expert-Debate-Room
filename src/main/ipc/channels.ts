@@ -82,6 +82,13 @@ export const IPC_CHANNELS = {
   /** 获取会议 review */
   HISTORY_GET_REVIEW: 'history:get-review',
 
+  // ===== Project Memory / User Intervention =====
+  MEMORY_ACCEPT_SUGGESTION: 'memory:accept-suggestion',
+  MEMORY_REJECT_SUGGESTION: 'memory:reject-suggestion',
+  MEMORY_DISABLE_ITEM: 'memory:disable-item',
+  MEMORY_DELETE_ITEM: 'memory:delete-item',
+  USER_INTERVENTION_CREATE: 'user-intervention:create',
+
   // ===== Export 相关 =====
   /** 导出 session 为 Markdown */
   EXPORT_MARKDOWN: 'export:markdown',

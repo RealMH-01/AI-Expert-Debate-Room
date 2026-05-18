@@ -221,6 +221,47 @@ CREATE TABLE IF NOT EXISTS model_call_usage (
   FOREIGN KEY (meeting_id) REFERENCES sessions(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS memory_suggestions (
+  id              TEXT PRIMARY KEY,
+  meeting_id      TEXT NOT NULL,
+  content         TEXT NOT NULL,
+  category        TEXT NOT NULL,
+  source_summary  TEXT NOT NULL,
+  status          TEXT NOT NULL DEFAULT 'pending',
+  edited_content  TEXT,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  decided_at      TEXT,
+  FOREIGN KEY (meeting_id) REFERENCES sessions(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS project_memory_items (
+  id                    TEXT PRIMARY KEY,
+  content               TEXT NOT NULL,
+  category              TEXT NOT NULL,
+  source_suggestion_id  TEXT,
+  source_meeting_id     TEXT,
+  status                TEXT NOT NULL DEFAULT 'active',
+  created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at            TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (source_suggestion_id) REFERENCES memory_suggestions(id) ON DELETE SET NULL,
+  FOREIGN KEY (source_meeting_id) REFERENCES sessions(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS user_interventions (
+  id                TEXT PRIMARY KEY,
+  meeting_id        TEXT NOT NULL,
+  phase             TEXT NOT NULL,
+  round_index       INTEGER,
+  type              TEXT NOT NULL,
+  content           TEXT NOT NULL,
+  target_expert_id  TEXT,
+  status            TEXT NOT NULL DEFAULT 'pending',
+  created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+  applied_at        TEXT,
+  FOREIGN KEY (meeting_id) REFERENCES sessions(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS settings (
   key         TEXT PRIMARY KEY,
   value_json  TEXT,
@@ -243,4 +284,7 @@ CREATE INDEX IF NOT EXISTS idx_attacks_meeting_round ON attacks(meeting_id, roun
 CREATE INDEX IF NOT EXISTS idx_attacks_source_message ON attacks(source_message_id);
 CREATE INDEX IF NOT EXISTS idx_context_summaries_meeting_scope ON context_summaries(meeting_id, scope, round_index);
 CREATE INDEX IF NOT EXISTS idx_model_call_usage_meeting ON model_call_usage(meeting_id, provider, model);
+CREATE INDEX IF NOT EXISTS idx_memory_suggestions_meeting_status ON memory_suggestions(meeting_id, status);
+CREATE INDEX IF NOT EXISTS idx_project_memory_items_status_category ON project_memory_items(status, category);
+CREATE INDEX IF NOT EXISTS idx_user_interventions_meeting_created ON user_interventions(meeting_id, created_at);
 `;

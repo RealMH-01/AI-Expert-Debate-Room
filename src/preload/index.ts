@@ -106,6 +106,23 @@ const api = {
   historyGetReview: (sessionId: string) =>
     ipcRenderer.invoke('history:get-review', sessionId),
 
+  // ===== Project Memory / User Intervention =====
+  memoryAcceptSuggestion: (params: { suggestionId: string; editedContent?: string | null }) =>
+    ipcRenderer.invoke('memory:accept-suggestion', params),
+  memoryRejectSuggestion: (suggestionId: string) =>
+    ipcRenderer.invoke('memory:reject-suggestion', suggestionId),
+  memoryDisableItem: (itemId: string) =>
+    ipcRenderer.invoke('memory:disable-item', itemId),
+  memoryDeleteItem: (itemId: string) =>
+    ipcRenderer.invoke('memory:delete-item', itemId),
+  userInterventionCreate: (params: {
+    meetingId: string
+    type: string
+    content: string
+    targetExpertId?: string | null
+    roundIndex?: number | null
+  }) => ipcRenderer.invoke('user-intervention:create', params),
+
   // ===== Export =====
   exportMarkdown: (sessionId: string) =>
     ipcRenderer.invoke('export:markdown', sessionId),

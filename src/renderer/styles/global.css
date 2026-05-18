@@ -1727,6 +1727,122 @@ html, body, #root {
   word-break: break-word;
 }
 
+.readonly-banner {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(74, 158, 255, 0.35);
+  border-radius: 6px;
+  background: rgba(74, 158, 255, 0.12);
+  color: var(--color-text);
+  font-size: 13px;
+}
+
+.memory-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.memory-item {
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 10px;
+  background: var(--color-bg-panel);
+}
+
+.memory-item-header,
+.memory-actions,
+.intervention-form {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.memory-item-header {
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.memory-category,
+.memory-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.memory-category {
+  background: rgba(74, 158, 255, 0.14);
+  color: var(--color-primary);
+}
+
+.memory-status {
+  background: rgba(160, 160, 176, 0.18);
+  color: var(--color-text-muted);
+}
+
+.memory-status.pending {
+  background: rgba(255, 193, 7, 0.18);
+  color: var(--color-warning);
+}
+
+.memory-status.accepted,
+.memory-status.edited,
+.memory-status.active {
+  background: rgba(76, 175, 80, 0.16);
+  color: var(--color-success);
+}
+
+.memory-status.rejected,
+.memory-status.disabled,
+.memory-status.deleted {
+  background: rgba(244, 67, 54, 0.14);
+  color: var(--color-error);
+}
+
+.memory-source {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  margin-top: 6px;
+}
+
+.memory-actions {
+  margin-top: 8px;
+}
+
+.memory-edit-box {
+  margin-top: 8px;
+}
+
+.memory-textarea {
+  width: 100%;
+  min-height: 82px;
+  resize: vertical;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg-input);
+  color: var(--color-text);
+  padding: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.intervention-form {
+  align-items: stretch;
+}
+
+.intervention-form select {
+  min-height: 34px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg-input);
+  color: var(--color-text);
+  padding: 0 8px;
+}
+
 /* Review styles */
 .review-list {
   list-style: disc;

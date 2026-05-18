@@ -34,6 +34,9 @@ export function generateSessionMarkdown(
     attacks,
     context_summaries,
     model_call_usage,
+    memory_suggestions,
+    project_memory_items,
+    user_interventions,
     review
   } = detail
   const lines: string[] = []
@@ -308,6 +311,9 @@ export function generateSessionMarkdown(
 
   appendContextSummaries(lines, context_summaries || [])
   appendModelCallUsage(lines, model_call_usage || [])
+  appendMemorySuggestions(lines, memory_suggestions || [])
+  appendUserInterventions(lines, user_interventions || [], participants)
+  appendProjectMemorySummary(lines, project_memory_items || [])
 
   // Footer
   lines.push('---')
@@ -393,6 +399,68 @@ function appendModelCallUsage(
   for (const item of grouped) {
     lines.push(
       `| ${item.provider}/${item.model} | ${item.count} | ${item.inputTokens} | ${item.outputTokens} | ${item.cost == null ? '未配置价格' : `${item.cost.toFixed(6)} ${item.currency}`} |`
+    )
+  }
+  lines.push('')
+}
+
+function appendMemorySuggestions(
+  lines: string[],
+  suggestions: SessionFullDetail['memory_suggestions']
+): void {
+  if (!suggestions || suggestions.length === 0) return
+
+  lines.push('## Project Memory Suggestions')
+  lines.push('')
+  lines.push('*Suggestions are pending until the user accepts or edits and accepts them.*')
+  lines.push('')
+  lines.push('| Category | Status | Content | Source |')
+  lines.push('|----------|--------|---------|--------|')
+  for (const suggestion of suggestions) {
+    const content = suggestion.edited_content || suggestion.content
+    lines.push(
+      `| ${suggestion.category} | ${suggestion.status} | ${escapeTableCell(content)} | ${escapeTableCell(suggestion.source_summary)} |`
+    )
+  }
+  lines.push('')
+}
+
+function appendUserInterventions(
+  lines: string[],
+  interventions: SessionFullDetail['user_interventions'],
+  participants: SessionParticipant[]
+): void {
+  if (!interventions || interventions.length === 0) return
+
+  lines.push('## User Interventions')
+  lines.push('')
+  lines.push('| Time | Type | Status | Target | Content |')
+  lines.push('|------|------|--------|--------|---------|')
+  for (const intervention of interventions) {
+    const target = intervention.target_expert_id
+      ? findParticipantName(participants, intervention.target_expert_id)
+      : '-'
+    lines.push(
+      `| ${formatTime(intervention.created_at)} | ${intervention.type} | ${intervention.status} | ${target} | ${escapeTableCell(intervention.content)} |`
+    )
+  }
+  lines.push('')
+}
+
+function appendProjectMemorySummary(
+  lines: string[],
+  items: SessionFullDetail['project_memory_items']
+): void {
+  const activeItems = (items || []).filter((item) => item.status === 'active')
+  if (activeItems.length === 0) return
+
+  lines.push('## Accepted Project Memory')
+  lines.push('')
+  lines.push('| Category | Content | Source Meeting |')
+  lines.push('|----------|---------|----------------|')
+  for (const item of activeItems) {
+    lines.push(
+      `| ${item.category} | ${escapeTableCell(item.content)} | ${item.source_meeting_id || '-'} |`
     )
   }
   lines.push('')
@@ -521,6 +589,13 @@ function parseDimensions(json: string | null | undefined): string[] {
   } catch {
     return ['unknown']
   }
+}
+
+function escapeTableCell(value: string | null | undefined): string {
+  return (value || '')
+    .replace(/\r?\n/g, ' ')
+    .replace(/\|/g, '\\|')
+    .trim()
 }
 
 function appendSettlementItems(
