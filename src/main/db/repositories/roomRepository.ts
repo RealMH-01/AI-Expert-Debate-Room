@@ -95,6 +95,18 @@ export function updateRoomRules(id: string, rules: RulesConfig): Room | undefine
  */
 export function deleteRoom(id: string): boolean {
   const db = getDatabase()
-  const result = db.prepare('DELETE FROM rooms WHERE id = ?').run(id)
-  return result.changes > 0
+  const tx = db.transaction((roomId: string) => {
+    const room = db
+      .prepare('SELECT id FROM rooms WHERE id = ?')
+      .get(roomId) as { id: string } | undefined
+
+    if (!room) return false
+
+    db.prepare('DELETE FROM sessions WHERE room_id = ?').run(roomId)
+    const result = db.prepare('DELETE FROM rooms WHERE id = ?').run(roomId)
+
+    return result.changes > 0
+  })
+
+  return tx(id)
 }

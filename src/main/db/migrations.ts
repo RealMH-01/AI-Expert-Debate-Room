@@ -14,6 +14,7 @@ interface Migration {
   version: number
   name: string
   sql: string
+  requiresForeignKeysOff?: boolean
 }
 
 /** 迁移列表，按版本号顺序排列 */
@@ -226,6 +227,55 @@ CREATE TABLE IF NOT EXISTS provider_models (
 
 CREATE INDEX IF NOT EXISTS idx_provider_models_provider ON provider_models(provider_id);
 `
+  },
+  {
+    version: 7,
+    name: 'add room delete cascade to sessions',
+    requiresForeignKeysOff: true,
+    sql: `
+DROP TABLE IF EXISTS sessions_new;
+
+CREATE TABLE sessions_new (
+  id              TEXT PRIMARY KEY,
+  room_id         TEXT NOT NULL,
+  title           TEXT NOT NULL,
+  user_question   TEXT,
+  status          TEXT NOT NULL DEFAULT 'preparing',
+  current_phase   TEXT,
+  final_summary   TEXT,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
+);
+
+INSERT INTO sessions_new (
+  id,
+  room_id,
+  title,
+  user_question,
+  status,
+  current_phase,
+  final_summary,
+  created_at,
+  updated_at
+)
+SELECT
+  id,
+  room_id,
+  title,
+  user_question,
+  status,
+  current_phase,
+  final_summary,
+  created_at,
+  updated_at
+FROM sessions;
+
+DROP TABLE sessions;
+ALTER TABLE sessions_new RENAME TO sessions;
+
+CREATE INDEX IF NOT EXISTS idx_sessions_room_id ON sessions(room_id);
+`
   }
 ]
 
@@ -264,6 +314,46 @@ function setCurrentVersion(db: Database.Database, version: number): void {
   ).run(String(version), now)
 }
 
+function assertNoForeignKeyViolations(db: Database.Database): void {
+  const violations = db.pragma('foreign_key_check') as Array<Record<string, unknown>>
+  if (violations.length > 0) {
+    throw new Error(
+      `[Migrations] foreign_key_check failed: ${JSON.stringify(violations)}`
+    )
+  }
+}
+
+function runSingleMigration(db: Database.Database, migration: Migration): void {
+  if (!migration.requiresForeignKeysOff) {
+    const runMigration = db.transaction(() => {
+      db.exec(migration.sql)
+      setCurrentVersion(db, migration.version)
+    })
+
+    runMigration()
+    return
+  }
+
+  const foreignKeysWereEnabled = Boolean(
+    db.pragma('foreign_keys', { simple: true })
+  )
+
+  db.pragma('foreign_keys = OFF')
+  try {
+    const runMigration = db.transaction(() => {
+      db.exec(migration.sql)
+      assertNoForeignKeyViolations(db)
+      setCurrentVersion(db, migration.version)
+    })
+
+    runMigration()
+  } finally {
+    db.pragma(`foreign_keys = ${foreignKeysWereEnabled ? 'ON' : 'OFF'}`)
+  }
+
+  assertNoForeignKeyViolations(db)
+}
+
 /**
  * 合并后安全网：幂等确保 v3-v6 所有表存在。
  * 处理边缘情况：数据库之前可能跑过不同的版本编号方案。
@@ -274,7 +364,7 @@ function ensurePostMergeTables(db: Database.Database): void {
   if (currentVersion < 3) return
 
   for (const migration of MIGRATIONS) {
-    if (migration.version >= 3) {
+    if (migration.version >= 3 && migration.version <= 6) {
       db.exec(migration.sql)
     }
   }
@@ -303,12 +393,7 @@ export function runMigrations(db: Database.Database): void {
       `[Migrations] 执行迁移 v${migration.version}: ${migration.name}`
     )
 
-    const runMigration = db.transaction(() => {
-      db.exec(migration.sql)
-      setCurrentVersion(db, migration.version)
-    })
-
-    runMigration()
+    runSingleMigration(db, migration)
 
     console.log(`[Migrations] 迁移 v${migration.version} 完成`)
   }
