@@ -111,6 +111,50 @@ CREATE INDEX IF NOT EXISTS idx_claims_source_message ON claims(source_message_id
 CREATE INDEX IF NOT EXISTS idx_attacks_meeting_round ON attacks(meeting_id, round_index);
 CREATE INDEX IF NOT EXISTS idx_attacks_source_message ON attacks(source_message_id);
 `
+  },
+  {
+    version: 4,
+    name: 'add context summaries and model call usage tables',
+    sql: `
+CREATE TABLE IF NOT EXISTS context_summaries (
+  id                         TEXT PRIMARY KEY,
+  meeting_id                 TEXT NOT NULL,
+  scope                      TEXT NOT NULL,
+  round_index                INTEGER,
+  summary_text               TEXT NOT NULL,
+  structured_summary_json    TEXT NOT NULL,
+  source_message_ids_json    TEXT,
+  created_by                 TEXT NOT NULL DEFAULT 'system',
+  created_at                 TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at                 TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (meeting_id) REFERENCES sessions(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS model_call_usage (
+  id                         TEXT PRIMARY KEY,
+  meeting_id                 TEXT NOT NULL,
+  phase                      TEXT NOT NULL,
+  round_index                INTEGER,
+  role                       TEXT NOT NULL,
+  expert_id                  TEXT,
+  provider                   TEXT NOT NULL,
+  model                      TEXT NOT NULL,
+  estimated_input_tokens     INTEGER NOT NULL DEFAULT 0,
+  estimated_output_tokens    INTEGER NOT NULL DEFAULT 0,
+  actual_input_tokens        INTEGER,
+  actual_output_tokens       INTEGER,
+  estimated_cost             REAL,
+  currency                   TEXT NOT NULL DEFAULT 'USD',
+  pricing_source             TEXT NOT NULL DEFAULT 'estimated',
+  request_started_at         TEXT NOT NULL,
+  request_finished_at        TEXT NOT NULL,
+  created_at                 TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (meeting_id) REFERENCES sessions(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_context_summaries_meeting_scope ON context_summaries(meeting_id, scope, round_index);
+CREATE INDEX IF NOT EXISTS idx_model_call_usage_meeting ON model_call_usage(meeting_id, provider, model);
+`
   }
 ]
 

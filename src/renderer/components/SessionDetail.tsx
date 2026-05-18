@@ -42,6 +42,8 @@ interface SessionFullDetail {
   snapshots: DetailSnapshot[]
   claims: DetailClaim[]
   attacks: DetailAttack[]
+  context_summaries: DetailContextSummary[]
+  model_call_usage: DetailModelCallUsage[]
   review: { id: string; session_id: string; review_json: string; markdown: string | null; created_at: string; updated_at: string } | null
 }
 
@@ -129,6 +131,61 @@ interface DetailAttack {
   source_message_id: string
 }
 
+interface DetailContextSummary {
+  id: string
+  meeting_id: string
+  scope: 'round' | 'session'
+  round_index: number | null
+  summary_text: string
+  structured_summary_json: string
+  source_message_ids_json: string | null
+  created_by: string
+  created_at: string
+  updated_at: string
+}
+
+interface DetailModelCallUsage {
+  id: string
+  meeting_id: string
+  phase: string
+  round_index: number | null
+  role: string
+  expert_id: string | null
+  provider: string
+  model: string
+  estimated_input_tokens: number
+  estimated_output_tokens: number
+  actual_input_tokens: number | null
+  actual_output_tokens: number | null
+  estimated_cost: number | null
+  currency: string
+  pricing_source: string
+  request_started_at: string
+  request_finished_at: string
+  created_at: string
+}
+
+interface UsageGroup {
+  provider: string
+  model: string
+  count: number
+  inputTokens: number
+  outputTokens: number
+  cost: number | null
+  currency: string
+  hasUnknownPrice: boolean
+}
+
+interface UsageStats {
+  callCount: number
+  inputTokens: number
+  outputTokens: number
+  cost: number | null
+  currency: string
+  hasUnknownPrice: boolean
+  groups: UsageGroup[]
+}
+
 interface ReviewData {
   question: string
   room_name: string
@@ -211,7 +268,21 @@ const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId, onBack }) => {
     )
   }
 
-  const { session, room_name, participants, messages, votes, settlements, claims, attacks } = detail
+  const {
+    session,
+    room_name,
+    participants,
+    messages,
+    votes,
+    settlements,
+    claims,
+    attacks,
+    context_summaries,
+    model_call_usage
+  } = detail
+  const contextSummaries = context_summaries || []
+  const modelCallUsage = model_call_usage || []
+  const sessionContextSummary = contextSummaries.find((summary) => summary.scope === 'session')
   const moderator = participants.find((p) => p.role === 'moderator')
   const experts = participants.filter((p) => p.role === 'expert')
 
@@ -236,6 +307,7 @@ const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId, onBack }) => {
 
   // Get round indices
   const roundIndices = [...new Set(debateMsgs.map((m) => m.round_index))].sort((a, b) => a - b)
+  const usageStats = buildUsageStats(modelCallUsage)
 
   // Participant name lookup
   const nameMap = new Map<string, string>()
@@ -408,6 +480,60 @@ const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId, onBack }) => {
                 <div className="detail-content-block">{session.final_summary}</div>
               </div>
             )}
+
+            <div className="detail-card">
+              <h4>上下文压缩摘要</h4>
+              {sessionContextSummary ? (
+                <>
+                  <div className="detail-info-grid">
+                    <div><span className="detail-label">创建时间:</span> {formatTime(sessionContextSummary.created_at)}</div>
+                    <div><span className="detail-label">created_by:</span> {sessionContextSummary.created_by}</div>
+                  </div>
+                  <div className="detail-content-block">{sessionContextSummary.summary_text}</div>
+                </>
+              ) : (
+                <p className="placeholder-text">本场会议还没有上下文压缩摘要。旧会议没有摘要时不会影响查看或导出。</p>
+              )}
+            </div>
+
+            <div className="detail-card">
+              <h4>模型调用统计 / 成本估算</h4>
+              <p className="placeholder-text">这是粗略估算，不等于实际账单；不会影响 HP、投票、议事权、排名或 Hell Pool。</p>
+              {usageStats.callCount === 0 ? (
+                <p className="placeholder-text">本场会议还没有模型调用统计。</p>
+              ) : (
+                <>
+                  <div className="detail-info-grid">
+                    <div><span className="detail-label">估算输入 tokens:</span> {formatInteger(usageStats.inputTokens)}</div>
+                    <div><span className="detail-label">估算输出 tokens:</span> {formatInteger(usageStats.outputTokens)}</div>
+                    <div><span className="detail-label">估算费用:</span> {formatUsageCost(usageStats)}</div>
+                    <div><span className="detail-label">调用次数:</span> {usageStats.callCount}</div>
+                  </div>
+                  <table className="detail-table">
+                    <thead>
+                      <tr>
+                        <th>Provider / Model</th>
+                        <th>调用次数</th>
+                        <th>输入 tokens</th>
+                        <th>输出 tokens</th>
+                        <th>估算费用</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {usageStats.groups.map((group) => (
+                        <tr key={`${group.provider}:${group.model}`}>
+                          <td>{group.provider}/{group.model}</td>
+                          <td>{group.count}</td>
+                          <td>{formatInteger(group.inputTokens)}</td>
+                          <td>{formatInteger(group.outputTokens)}</td>
+                          <td>{formatGroupCost(group)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </>
+              )}
+            </div>
           </div>
         )}
 
@@ -812,6 +938,81 @@ function parseAttackDimensions(json: string | null | undefined): string[] {
   } catch {
     return ['unknown']
   }
+}
+
+function buildUsageStats(rows: DetailModelCallUsage[]): UsageStats {
+  const groups = new Map<string, UsageGroup>()
+  let inputTokens = 0
+  let outputTokens = 0
+  let cost: number | null = null
+  let hasUnknownPrice = false
+  let currency = 'USD'
+
+  for (const row of rows) {
+    const rowInputTokens = safeNumber(row.estimated_input_tokens)
+    const rowOutputTokens = safeNumber(row.estimated_output_tokens)
+    inputTokens += rowInputTokens
+    outputTokens += rowOutputTokens
+    currency = row.currency || currency
+
+    if (row.estimated_cost == null) {
+      hasUnknownPrice = true
+    } else {
+      cost = (cost ?? 0) + safeNumber(row.estimated_cost)
+    }
+
+    const key = `${row.provider || 'unknown'}::${row.model || 'unknown'}`
+    const group = groups.get(key) || {
+      provider: row.provider || 'unknown',
+      model: row.model || 'unknown',
+      count: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      cost: null,
+      currency: row.currency || 'USD',
+      hasUnknownPrice: false
+    }
+    group.count += 1
+    group.inputTokens += rowInputTokens
+    group.outputTokens += rowOutputTokens
+    if (row.estimated_cost == null) {
+      group.hasUnknownPrice = true
+    } else {
+      group.cost = (group.cost ?? 0) + safeNumber(row.estimated_cost)
+    }
+    groups.set(key, group)
+  }
+
+  return {
+    callCount: rows.length,
+    inputTokens,
+    outputTokens,
+    cost,
+    currency,
+    hasUnknownPrice,
+    groups: Array.from(groups.values())
+  }
+}
+
+function formatUsageCost(stats: UsageStats): string {
+  if (stats.cost == null) return '未配置价格'
+  const suffix = stats.hasUnknownPrice ? '（部分模型未配置价格）' : ''
+  return `${stats.cost.toFixed(6)} ${stats.currency}${suffix}`
+}
+
+function formatGroupCost(group: UsageGroup): string {
+  if (group.cost == null) return '未配置价格'
+  const suffix = group.hasUnknownPrice ? '（部分未配置）' : ''
+  return `${group.cost.toFixed(6)} ${group.currency}${suffix}`
+}
+
+function formatInteger(value: number): string {
+  return Math.round(value).toLocaleString()
+}
+
+function safeNumber(value: number | null | undefined): number {
+  if (typeof value !== 'number' || Number.isNaN(value)) return 0
+  return Math.max(0, value)
 }
 
 export default SessionDetail

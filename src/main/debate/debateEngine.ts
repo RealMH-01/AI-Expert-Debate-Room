@@ -29,7 +29,7 @@ import type {
   ValidationResult
 } from '../../shared/types'
 import { DEFAULT_RULES_CONFIG } from '../../shared/types'
-import type { DebateModelProvider, TranscriptEntry, DebateGenerateInput } from '../providers/base'
+import type { DebateModelProvider, TranscriptEntry, DebateGenerateInput, DebateGenerateOutput, VoteGenerateOutput } from '../providers/base'
 import { getProviderForAgent, validateProvidersReady } from '../providers/providerFactory'
 import * as sessionRepo from '../db/repositories/sessionRepository'
 import * as messageRepo from '../db/repositories/messageRepository'
@@ -41,6 +41,8 @@ import * as participantRepo from '../db/repositories/participantRepository'
 import * as reviewRepo from '../db/repositories/reviewRepository'
 import * as historyRepo from '../db/repositories/historyRepository'
 import * as claimRepo from '../db/repositories/claimRepository'
+import * as contextSummaryRepo from '../db/repositories/contextSummaryRepository'
+import * as usageRepo from '../db/repositories/modelCallUsageRepository'
 import { buildSessionReview } from '../review/sessionReviewBuilder'
 import { generateSessionMarkdown } from '../export/markdownExporter'
 import { getDatabase } from '../db/sqlite'
@@ -49,6 +51,8 @@ import { calculateRanking } from '../scoring/ranking'
 import { generateSettlementPreview, calculateInfluenceChange, calculatePrestigeChange } from '../scoring/hpSettlement'
 import type { SingleVote, SettlementResult } from '../voting/voteTypes'
 import { normalizeProviderDebateOutput } from '../claims/claimTracker'
+import { buildSessionContextSummary } from '../context/contextCompressor'
+import { trackModelCallUsage } from '../cost/usageTracker'
 
 /**
  * 会议运行中的回调接口
@@ -370,6 +374,65 @@ function saveClaimsAndAttacks(
   }
 }
 
+function providerLabel(agent: Agent, provider: DebateModelProvider): string {
+  return agent.provider || provider.name || 'unknown'
+}
+
+function modelLabel(agent: Agent, provider: DebateModelProvider): string {
+  return agent.model || provider.name || 'unknown'
+}
+
+async function trackDebateCall(
+  sessionId: string,
+  phase: DebatePhase,
+  roundIndex: number,
+  agent: Agent,
+  provider: DebateModelProvider,
+  input: DebateGenerateInput,
+  call: () => Promise<DebateGenerateOutput>
+): Promise<DebateGenerateOutput> {
+  return trackModelCallUsage(
+    {
+      meetingId: sessionId,
+      phase,
+      roundIndex,
+      role: input.role,
+      expertId: input.role === 'expert' ? agent.id : null,
+      provider: providerLabel(agent, provider),
+      model: modelLabel(agent, provider),
+      inputText: input
+    },
+    call,
+    (record) => usageRepo.insertModelCallUsage(record),
+    (output) => output.content
+  )
+}
+
+async function trackVoteCall(
+  sessionId: string,
+  roundIndex: number,
+  voter: Agent,
+  provider: DebateModelProvider,
+  input: Parameters<DebateModelProvider['generateExpertVote']>[0],
+  call: () => Promise<VoteGenerateOutput>
+): Promise<VoteGenerateOutput> {
+  return trackModelCallUsage(
+    {
+      meetingId: sessionId,
+      phase: 'voting',
+      roundIndex,
+      role: 'expert',
+      expertId: voter.id,
+      provider: providerLabel(voter, provider),
+      model: modelLabel(voter, provider),
+      inputText: input
+    },
+    call,
+    (record) => usageRepo.insertModelCallUsage(record),
+    (output) => output.rawJson
+  )
+}
+
 async function runModeratorOpening(
   session: Session,
   provider: DebateModelProvider,
@@ -397,7 +460,15 @@ async function runModeratorOpening(
     roomName
   }
 
-  const output = await provider.generateModeratorOpening(input)
+  const output = await trackDebateCall(
+    session.id,
+    phase,
+    0,
+    moderator,
+    provider,
+    input,
+    () => provider.generateModeratorOpening(input)
+  )
 
   const message = messageRepo.insertMessage({
     sessionId: session.id,
@@ -459,7 +530,15 @@ async function runInitialAnswers(
     const expertProvider = getProviderForAgent(expert)
 
     try {
-      const output = await expertProvider.generateExpertInitialAnswer(input)
+      const output = await trackDebateCall(
+        session.id,
+        phase,
+        0,
+        expert,
+        expertProvider,
+        input,
+        () => expertProvider.generateExpertInitialAnswer(input)
+      )
       const normalized = normalizeProviderDebateOutput(output)
 
       const message = messageRepo.insertMessage({
@@ -543,7 +622,15 @@ async function runDebateRound(
     const expertProvider = getProviderForAgent(expert)
 
     try {
-      const output = await expertProvider.generateExpertDebateTurn(input)
+      const output = await trackDebateCall(
+        session.id,
+        debatePhase,
+        roundIndex,
+        expert,
+        expertProvider,
+        input,
+        () => expertProvider.generateExpertDebateTurn(input)
+      )
       const normalized = normalizeProviderDebateOutput(output)
 
       const message = messageRepo.insertMessage({
@@ -604,7 +691,15 @@ async function runDebateRound(
     roomName
   }
 
-  const summaryOutput = await moderatorProvider.generateModeratorRoundSummary(summaryInput)
+  const summaryOutput = await trackDebateCall(
+    session.id,
+    summaryPhase,
+    roundIndex,
+    moderator,
+    moderatorProvider,
+    summaryInput,
+    () => moderatorProvider.generateModeratorRoundSummary(summaryInput)
+  )
 
   const summaryMessage = messageRepo.insertMessage({
     sessionId: session.id,
@@ -659,7 +754,15 @@ async function runFinalSummary(
     roomName
   }
 
-  const output = await provider.generateModeratorFinalSummary(input)
+  const output = await trackDebateCall(
+    session.id,
+    phase,
+    totalRounds,
+    moderator,
+    provider,
+    input,
+    () => provider.generateModeratorFinalSummary(input)
+  )
 
   const message = messageRepo.insertMessage({
     sessionId: session.id,
@@ -821,12 +924,20 @@ async function runVotingPhase(
 
     let voteOutput: { rawJson: string }
     try {
-      voteOutput = await voterProvider.generateExpertVote({
+      const voteInput = {
         voter,
         aliveExperts,
         visibleTranscript: transcript,
         userQuestion
-      })
+      }
+      voteOutput = await trackVoteCall(
+        session.id,
+        totalRounds,
+        voter,
+        voterProvider,
+        voteInput,
+        () => voterProvider.generateExpertVote(voteInput)
+      )
     } catch (error: unknown) {
       // 投票生成失败：记录系统消息，跳过此专家
       const errorMsg = error instanceof Error ? error.message : '未知错误'
@@ -1479,8 +1590,11 @@ function generateSessionReviewOnFinish(sessionId: string, roomId: string): void 
     if (!detail) return
 
     const reviewData = buildSessionReview(detail)
+    generateContextSummaryOnFinish(detail, reviewData)
+
+    const refreshedDetail = historyRepo.getSessionFullDetail(sessionId) ?? detail
     const reviewJson = JSON.stringify(reviewData)
-    const markdown = generateSessionMarkdown(detail, reviewData)
+    const markdown = generateSessionMarkdown(refreshedDetail, reviewData)
 
     reviewRepo.insertReview({
       sessionId,
@@ -1492,5 +1606,29 @@ function generateSessionReviewOnFinish(sessionId: string, roomId: string): void 
   } catch (error) {
     console.error('[DebateEngine] 生成复盘失败:', error)
     // Don't throw - review generation failure shouldn't break the session
+  }
+}
+
+function generateContextSummaryOnFinish(
+  detail: historyRepo.SessionFullDetail,
+  reviewData: ReturnType<typeof buildSessionReview>
+): void {
+  try {
+    const detailForSummary = {
+      ...detail,
+      review: {
+        id: 'pending-review',
+        session_id: detail.session.id,
+        review_json: JSON.stringify(reviewData),
+        markdown: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }
+    }
+    const summary = buildSessionContextSummary(detailForSummary)
+    contextSummaryRepo.insertContextSummary(summary)
+    console.log(`[DebateEngine] Session ${detail.session.id} context summary generated`)
+  } catch (error) {
+    console.error('[DebateEngine] Context summary generation failed:', error)
   }
 }

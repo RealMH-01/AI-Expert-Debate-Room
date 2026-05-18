@@ -23,7 +23,19 @@ export function generateSessionMarkdown(
   detail: SessionFullDetail,
   reviewData?: ReviewData | null
 ): string {
-  const { session, room_name, participants, messages, votes, settlements, claims, attacks, review } = detail
+  const {
+    session,
+    room_name,
+    participants,
+    messages,
+    votes,
+    settlements,
+    claims,
+    attacks,
+    context_summaries,
+    model_call_usage,
+    review
+  } = detail
   const lines: string[] = []
 
   // Title
@@ -294,6 +306,9 @@ export function generateSessionMarkdown(
     lines.push('')
   }
 
+  appendContextSummaries(lines, context_summaries || [])
+  appendModelCallUsage(lines, model_call_usage || [])
+
   // Footer
   lines.push('---')
   lines.push('')
@@ -316,6 +331,113 @@ export function generateExportFilename(title: string): string {
     .replace(/-+/g, '-')
     .slice(0, 50)
   return `${safeName}-${date}.md`
+}
+
+function appendContextSummaries(
+  lines: string[],
+  summaries: SessionFullDetail['context_summaries']
+): void {
+  if (!summaries || summaries.length === 0) return
+
+  lines.push('## 上下文压缩摘要')
+  lines.push('')
+
+  const sessionSummaries = summaries.filter((summary) => summary.scope === 'session')
+  const roundSummaries = summaries.filter((summary) => summary.scope === 'round')
+
+  for (const summary of sessionSummaries) {
+    lines.push(`### 会议级摘要`)
+    lines.push('')
+    lines.push(`- 生成时间: ${formatTime(summary.created_at)}`)
+    lines.push(`- 来源: ${summary.created_by}`)
+    lines.push('')
+    lines.push(summary.summary_text)
+    lines.push('')
+  }
+
+  for (const summary of roundSummaries) {
+    lines.push(`### 第 ${summary.round_index ?? '-'} 轮摘要`)
+    lines.push('')
+    lines.push(`- 生成时间: ${formatTime(summary.created_at)}`)
+    lines.push(`- 来源: ${summary.created_by}`)
+    lines.push('')
+    lines.push(summary.summary_text)
+    lines.push('')
+  }
+}
+
+function appendModelCallUsage(
+  lines: string[],
+  usageRows: SessionFullDetail['model_call_usage']
+): void {
+  if (!usageRows || usageRows.length === 0) return
+
+  const totalInput = usageRows.reduce((sum, row) => sum + row.estimated_input_tokens, 0)
+  const totalOutput = usageRows.reduce((sum, row) => sum + row.estimated_output_tokens, 0)
+  const knownCostRows = usageRows.filter((row) => row.estimated_cost != null)
+  const totalCost = knownCostRows.reduce((sum, row) => sum + (row.estimated_cost ?? 0), 0)
+  const currency = usageRows.find((row) => row.currency)?.currency || 'USD'
+  const grouped = aggregateUsageByModel(usageRows)
+
+  lines.push('## 模型调用统计与粗略成本估算')
+  lines.push('')
+  lines.push('*粗略估算，不等于实际账单；未配置价格的模型只统计 token。*')
+  lines.push('')
+  lines.push(`- 估算输入 tokens: ${totalInput}`)
+  lines.push(`- 估算输出 tokens: ${totalOutput}`)
+  lines.push(`- 估算费用: ${knownCostRows.length > 0 ? `${totalCost.toFixed(6)} ${currency}` : '未配置价格'}`)
+  lines.push('')
+  lines.push('| Provider / Model | 调用次数 | 输入tokens | 输出tokens | 估算费用 |')
+  lines.push('|------------------|----------|------------|------------|----------|')
+
+  for (const item of grouped) {
+    lines.push(
+      `| ${item.provider}/${item.model} | ${item.count} | ${item.inputTokens} | ${item.outputTokens} | ${item.cost == null ? '未配置价格' : `${item.cost.toFixed(6)} ${item.currency}`} |`
+    )
+  }
+  lines.push('')
+}
+
+function aggregateUsageByModel(usageRows: SessionFullDetail['model_call_usage']): Array<{
+  provider: string
+  model: string
+  count: number
+  inputTokens: number
+  outputTokens: number
+  cost: number | null
+  currency: string
+}> {
+  const grouped = new Map<string, {
+    provider: string
+    model: string
+    count: number
+    inputTokens: number
+    outputTokens: number
+    cost: number | null
+    currency: string
+  }>()
+
+  for (const row of usageRows) {
+    const key = `${row.provider}::${row.model}`
+    const current = grouped.get(key) || {
+      provider: row.provider,
+      model: row.model,
+      count: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      cost: null,
+      currency: row.currency || 'USD'
+    }
+    current.count += 1
+    current.inputTokens += row.estimated_input_tokens
+    current.outputTokens += row.estimated_output_tokens
+    if (row.estimated_cost != null) {
+      current.cost = (current.cost ?? 0) + row.estimated_cost
+    }
+    grouped.set(key, current)
+  }
+
+  return Array.from(grouped.values())
 }
 
 // ===== Helpers =====

@@ -118,7 +118,7 @@ export class OpenAICompatibleProvider implements DebateModelProvider {
       rawJson = jsonMatch[1].trim()
     }
     
-    return { rawJson }
+    return { rawJson, usage: output.usage }
   }
 
   /**

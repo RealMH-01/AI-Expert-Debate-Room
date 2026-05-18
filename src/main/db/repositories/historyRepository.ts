@@ -9,6 +9,8 @@
 import { getDatabase } from '../sqlite'
 import type { Session } from '../../../shared/types'
 import type { AttackRecord, ClaimRecord } from './claimRepository'
+import type { ContextSummaryRecord } from './contextSummaryRepository'
+import type { ModelCallUsageRecord } from './modelCallUsageRepository'
 
 export interface HistorySessionItem {
   id: string
@@ -115,6 +117,8 @@ export interface SessionFullDetail {
   snapshots: SessionSnapshot[]
   claims: ClaimRecord[]
   attacks: AttackRecord[]
+  context_summaries: ContextSummaryRecord[]
+  model_call_usage: ModelCallUsageRecord[]
   review: SessionReviewRecord | null
 }
 
@@ -245,6 +249,22 @@ export function getSessionFullDetail(sessionId: string): SessionFullDetail | nul
     .prepare('SELECT * FROM attacks WHERE meeting_id = ? ORDER BY round_index ASC, created_at ASC')
     .all(sessionId) as AttackRecord[]
 
+  const context_summaries = db
+    .prepare(
+      `SELECT * FROM context_summaries
+       WHERE meeting_id = ?
+       ORDER BY CASE scope WHEN 'session' THEN 0 ELSE 1 END, round_index ASC, created_at ASC`
+    )
+    .all(sessionId) as ContextSummaryRecord[]
+
+  const model_call_usage = db
+    .prepare(
+      `SELECT * FROM model_call_usage
+       WHERE meeting_id = ?
+       ORDER BY request_started_at ASC, created_at ASC`
+    )
+    .all(sessionId) as ModelCallUsageRecord[]
+
   const review = db
     .prepare('SELECT * FROM session_reviews WHERE session_id = ? ORDER BY created_at DESC LIMIT 1')
     .get(sessionId) as SessionReviewRecord | undefined
@@ -259,6 +279,8 @@ export function getSessionFullDetail(sessionId: string): SessionFullDetail | nul
     snapshots,
     claims,
     attacks,
+    context_summaries,
+    model_call_usage,
     review: review ?? null
   }
 }
@@ -275,6 +297,8 @@ export function deleteSession(sessionId: string): boolean {
 
   const deleteTxn = db.transaction(() => {
     db.prepare('DELETE FROM session_reviews WHERE session_id = ?').run(sessionId)
+    db.prepare('DELETE FROM model_call_usage WHERE meeting_id = ?').run(sessionId)
+    db.prepare('DELETE FROM context_summaries WHERE meeting_id = ?').run(sessionId)
     db.prepare('DELETE FROM attacks WHERE meeting_id = ?').run(sessionId)
     db.prepare('DELETE FROM claims WHERE meeting_id = ?').run(sessionId)
     db.prepare('DELETE FROM agent_snapshots WHERE session_id = ?').run(sessionId)

@@ -88,7 +88,14 @@ export class MockProvider implements DebateModelProvider {
   async generateExpertVote(input: VoteGenerateInput): Promise<VoteGenerateOutput> {
     await simulateDelay()
     const rawJson = mockExpertVote(input)
-    return { rawJson }
+    return {
+      rawJson,
+      usage: {
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0
+      }
+    }
   }
 }
 

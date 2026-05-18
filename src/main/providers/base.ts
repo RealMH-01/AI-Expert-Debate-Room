@@ -32,6 +32,12 @@ export interface VoteGenerateInput {
 export interface VoteGenerateOutput {
   /** 原始 JSON 字符串（交给 VoteValidator 校验） */
   rawJson: string
+  /** Optional token usage returned by the provider. */
+  usage?: {
+    promptTokens: number
+    completionTokens: number
+    totalTokens: number
+  }
 }
 
 /**
