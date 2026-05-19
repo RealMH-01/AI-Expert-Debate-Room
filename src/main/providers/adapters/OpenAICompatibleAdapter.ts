@@ -4,6 +4,7 @@ import { getProviderDefinition } from '../../../shared/providers/modelRegistry'
 import type { ProviderId } from '../../../shared/providers/modelRegistry'
 import type { ProviderRequest, ProviderResponse } from '../types'
 import { joinUrl, mapHttpStatusToErrorType, sanitizeErrorMessage } from '../types'
+import { createCombinedAbortSignal, DebateAbortError, isDebateAbortError } from '../abort'
 import { BaseAdapter } from './BaseAdapter'
 
 export type ChatCompletionBody = Record<string, unknown>
@@ -82,15 +83,14 @@ export class OpenAICompatibleAdapter extends BaseAdapter {
         Authorization: `Bearer ${config.apiKey}`,
         ...(config.defaultHeaders || {})
       }
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), config.timeout || 60000)
+      const abort = createCombinedAbortSignal(request.signal, config.timeout || 60000)
 
       try {
         const response = await fetch(endpoint, {
           method: 'POST',
           headers,
           body: JSON.stringify(this.buildBody(request)),
-          signal: controller.signal
+          signal: abort.signal
         })
 
         if (!response.ok) {
@@ -101,14 +101,20 @@ export class OpenAICompatibleAdapter extends BaseAdapter {
 
         return this.parseResponse(await response.json())
       } catch (error) {
+        if (isDebateAbortError(error)) {
+          throw error
+        }
         if (error instanceof Error && error.name === 'AbortError') {
+          if (abort.getAbortReason() === 'external') {
+            throw new DebateAbortError()
+          }
           throw new Error('network: request timeout')
         }
         throw error instanceof Error
           ? new Error(sanitizeErrorMessage(error.message))
           : new Error('unknown: provider request failed')
       } finally {
-        clearTimeout(timeoutId)
+        abort.cleanup()
       }
     })
   }

@@ -93,6 +93,18 @@ export function failSession(
   return getSessionById(sessionId)
 }
 
+export function abortSession(
+  sessionId: string,
+  reason = '用户已中止本次辩论。'
+): Session | undefined {
+  const db = getDatabase()
+  const now = new Date().toISOString()
+  db.prepare(
+    `UPDATE sessions SET status = 'aborted', final_summary = ?, updated_at = ? WHERE id = ?`
+  ).run(reason, now, sessionId)
+  return getSessionById(sessionId)
+}
+
 /**
  * 根据 ID 获取会议
  */

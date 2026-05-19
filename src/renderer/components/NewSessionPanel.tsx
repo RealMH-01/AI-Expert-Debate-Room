@@ -11,14 +11,18 @@ import type { ValidationResult } from '../../shared/types'
 interface NewSessionPanelProps {
   roomId: string
   isRunning: boolean
+  isAborting?: boolean
   onStartDebate: (question: string) => void
+  onAbortDebate?: () => void
   validation: ValidationResult | null
 }
 
 const NewSessionPanel: React.FC<NewSessionPanelProps> = ({
   roomId,
   isRunning,
+  isAborting = false,
   onStartDebate,
+  onAbortDebate,
   validation
 }) => {
   const [question, setQuestion] = useState('')
@@ -87,6 +91,16 @@ const NewSessionPanel: React.FC<NewSessionPanelProps> = ({
       >
         {isRunning ? '辩论进行中...' : '开始模拟辩论'}
       </button>
+
+      {isRunning && onAbortDebate && (
+        <button
+          className="btn btn-secondary btn-full"
+          onClick={onAbortDebate}
+          disabled={isAborting}
+        >
+          {isAborting ? '正在停止...' : '停止辩论'}
+        </button>
+      )}
 
       {isRunning && (
         <div className="session-running-hint">

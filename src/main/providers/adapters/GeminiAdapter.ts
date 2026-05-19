@@ -2,6 +2,7 @@ import { getProviderConfig } from '../providerSettings'
 import { requestQueue } from '../requestQueue'
 import type { ProviderRequest, ProviderResponse } from '../types'
 import { joinUrl, sanitizeErrorMessage } from '../types'
+import { createCombinedAbortSignal, DebateAbortError, isDebateAbortError } from '../abort'
 import { BaseAdapter } from './BaseAdapter'
 
 export function mapEffortToGeminiThinkingLevel(
@@ -106,19 +107,34 @@ export class GeminiAdapter extends BaseAdapter {
       if (!config?.apiKey) throw new Error('Provider "google" is missing API Key.')
       if (!config.enabled) throw new Error('Provider "google" is disabled.')
       const built = buildGeminiGenerateContentRequest(request)
-      const response = await fetch(joinUrl(config.baseUrl || 'https://generativelanguage.googleapis.com/v1beta', built.path), {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-goog-api-key': config.apiKey,
-          ...(config.defaultHeaders || {})
-        },
-        body: JSON.stringify(built.body)
-      })
-      if (!response.ok) {
-        throw new Error(sanitizeErrorMessage(await response.text().catch(() => response.statusText)))
+      const abort = createCombinedAbortSignal(request.signal, config.timeout || 60000)
+      try {
+        const response = await fetch(joinUrl(config.baseUrl || 'https://generativelanguage.googleapis.com/v1beta', built.path), {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-goog-api-key': config.apiKey,
+            ...(config.defaultHeaders || {})
+          },
+          body: JSON.stringify(built.body),
+          signal: abort.signal
+        })
+        if (!response.ok) {
+          throw new Error(sanitizeErrorMessage(await response.text().catch(() => response.statusText)))
+        }
+        return parseGeminiResponse(await response.json(), this.model)
+      } catch (error) {
+        if (isDebateAbortError(error)) throw error
+        if (error instanceof Error && error.name === 'AbortError') {
+          if (abort.getAbortReason() === 'external') throw new DebateAbortError()
+          throw new Error('network: request timeout')
+        }
+        throw error instanceof Error
+          ? new Error(sanitizeErrorMessage(error.message))
+          : new Error('unknown: provider request failed')
+      } finally {
+        abort.cleanup()
       }
-      return parseGeminiResponse(await response.json(), this.model)
     })
   }
 }

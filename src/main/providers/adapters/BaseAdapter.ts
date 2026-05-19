@@ -50,40 +50,46 @@ export abstract class BaseAdapter implements DebateModelProvider {
 
   async generateModeratorOpening(input: DebateGenerateInput): Promise<DebateGenerateOutput> {
     return this.callMessages(buildModeratorOpeningPrompt(input), {
-      phase: 'moderator_opening'
+      phase: 'moderator_opening',
+      signal: input.signal
     })
   }
 
   async generateExpertInitialAnswer(input: DebateGenerateInput): Promise<DebateGenerateOutput> {
     return this.callMessages(buildExpertInitialPrompt(input), {
       phase: 'expert_initial',
-      responseFormat: this.getExpertOutputResponseFormat()
+      responseFormat: this.getExpertOutputResponseFormat(),
+      signal: input.signal
     })
   }
 
   async generateExpertDebateTurn(input: DebateGenerateInput): Promise<DebateGenerateOutput> {
     return this.callMessages(buildExpertDebatePrompt(input), {
       phase: 'debate_round',
-      responseFormat: this.getExpertOutputResponseFormat()
+      responseFormat: this.getExpertOutputResponseFormat(),
+      signal: input.signal
     })
   }
 
   async generateModeratorRoundSummary(input: DebateGenerateInput): Promise<DebateGenerateOutput> {
     return this.callMessages(buildModeratorRoundSummaryPrompt(input), {
-      phase: 'moderator_round_summary'
+      phase: 'moderator_round_summary',
+      signal: input.signal
     })
   }
 
   async generateModeratorFinalSummary(input: DebateGenerateInput): Promise<DebateGenerateOutput> {
     return this.callMessages(buildModeratorFinalSummaryPrompt(input), {
-      phase: 'moderator_final_summary'
+      phase: 'moderator_final_summary',
+      signal: input.signal
     })
   }
 
   async generateExpertVote(input: VoteGenerateInput): Promise<VoteGenerateOutput> {
     const output = await this.callMessages(buildExpertVotePrompt(input), {
       phase: 'voting',
-      responseFormat: 'json_object'
+      responseFormat: 'json_object',
+      signal: input.signal
     })
     let rawJson = output.content
     const jsonMatch = rawJson.match(/```(?:json)?\s*([\s\S]*?)```/)
@@ -98,6 +104,7 @@ export abstract class BaseAdapter implements DebateModelProvider {
     options: {
       phase: DebatePhase
       responseFormat?: ProviderResponseFormat
+      signal?: AbortSignal
     }
   ): Promise<DebateGenerateOutput> {
     const response = await this.send({
@@ -106,6 +113,7 @@ export abstract class BaseAdapter implements DebateModelProvider {
         role: message.role,
         content: message.content
       })),
+      signal: options.signal,
       temperature: 0.7,
       maxTokens: DEFAULT_OUTPUT_TOKENS_BY_PHASE[options.phase],
       responseFormat: options.responseFormat ?? 'text',

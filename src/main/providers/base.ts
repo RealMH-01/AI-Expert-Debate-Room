@@ -24,6 +24,7 @@ export interface VoteGenerateInput {
   visibleTranscript: TranscriptEntry[]
   /** 用户原始问题 */
   userQuestion: string
+  signal?: AbortSignal
 }
 
 /**
@@ -63,6 +64,7 @@ export interface DebateGenerateInput {
   rules: RulesConfig
   /** 会议室名称 */
   roomName: string
+  signal?: AbortSignal
 }
 
 /** 对话记录条目 */

@@ -2,6 +2,7 @@ import { getProviderConfig } from '../providerSettings'
 import { requestQueue } from '../requestQueue'
 import type { ProviderRequest, ProviderResponse } from '../types'
 import { joinUrl, sanitizeErrorMessage } from '../types'
+import { createCombinedAbortSignal, DebateAbortError, isDebateAbortError } from '../abort'
 import { BaseAdapter } from './BaseAdapter'
 
 export function buildOpenAIResponsesBody(request: ProviderRequest): Record<string, unknown> {
@@ -60,20 +61,36 @@ export class OpenAIAdapter extends BaseAdapter {
       if (!config.enabled) throw new Error('Provider "openai" is disabled.')
 
       const endpoint = joinUrl(config.baseUrl || 'https://api.openai.com/v1', 'responses')
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${config.apiKey}`,
-          ...(config.defaultHeaders || {})
-        },
-        body: JSON.stringify(buildOpenAIResponsesBody(request))
-      })
+      const abort = createCombinedAbortSignal(request.signal, config.timeout || 60000)
 
-      if (!response.ok) {
-        throw new Error(sanitizeErrorMessage(await response.text().catch(() => response.statusText)))
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${config.apiKey}`,
+            ...(config.defaultHeaders || {})
+          },
+          body: JSON.stringify(buildOpenAIResponsesBody(request)),
+          signal: abort.signal
+        })
+
+        if (!response.ok) {
+          throw new Error(sanitizeErrorMessage(await response.text().catch(() => response.statusText)))
+        }
+        return parseOpenAIResponsesResponse(await response.json(), this.model)
+      } catch (error) {
+        if (isDebateAbortError(error)) throw error
+        if (error instanceof Error && error.name === 'AbortError') {
+          if (abort.getAbortReason() === 'external') throw new DebateAbortError()
+          throw new Error('network: request timeout')
+        }
+        throw error instanceof Error
+          ? new Error(sanitizeErrorMessage(error.message))
+          : new Error('unknown: provider request failed')
+      } finally {
+        abort.cleanup()
       }
-      return parseOpenAIResponsesResponse(await response.json(), this.model)
     })
   }
 }

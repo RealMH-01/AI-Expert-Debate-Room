@@ -31,6 +31,7 @@ const DebatePanel: React.FC<DebatePanelProps> = ({ roomId }) => {
   const [session, setSession] = useState<Session | null>(null)
   const [currentPhase, setCurrentPhase] = useState<DebatePhase | null>(null)
   const [isRunning, setIsRunning] = useState(false)
+  const [isAborting, setIsAborting] = useState(false)
   const [validation, setValidation] = useState<ValidationResult | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -113,6 +114,7 @@ const DebatePanel: React.FC<DebatePanelProps> = ({ roomId }) => {
     const cleanupFinished = window.api.onDebateSessionFinished((sess: Session) => {
       setSession(sess)
       setIsRunning(false)
+      setIsAborting(false)
       setCurrentPhase(sess.current_phase as DebatePhase | null)
       // 刷新专家状态
       loadExpertStatus()
@@ -121,6 +123,7 @@ const DebatePanel: React.FC<DebatePanelProps> = ({ roomId }) => {
     const cleanupError = window.api.onDebateError((err: string) => {
       setError(err)
       setIsRunning(false)
+      setIsAborting(false)
     })
 
     const cleanupSettlement = window.api.onSettlementReady(
@@ -142,6 +145,7 @@ const DebatePanel: React.FC<DebatePanelProps> = ({ roomId }) => {
   const handleStartDebate = useCallback(
     async (question: string) => {
       setError(null)
+      setIsAborting(false)
       setMessages([])
       setSession(null)
       setCurrentPhase(null)
@@ -156,6 +160,38 @@ const DebatePanel: React.FC<DebatePanelProps> = ({ roomId }) => {
     },
     [roomId]
   )
+
+  const refreshLatestSession = useCallback(async () => {
+    const sessRes = await window.api.sessionGetByRoom(roomId)
+    if (sessRes.success && sessRes.data && sessRes.data.length > 0) {
+      const latestSession = sessRes.data[0]
+      setSession(latestSession)
+      setCurrentPhase(latestSession.current_phase as DebatePhase | null)
+      const msgRes = await window.api.messageGetBySession(latestSession.id)
+      if (msgRes.success && msgRes.data) {
+        setMessages(msgRes.data)
+      }
+    }
+  }, [roomId])
+
+  const handleAbortDebate = useCallback(async () => {
+    setError(null)
+    setIsAborting(true)
+    try {
+      const res = await window.api.debateAbort({ roomId, sessionId: session?.id })
+      if (res.success) {
+        setIsRunning(false)
+        setSettlement(null)
+        await refreshLatestSession()
+      } else {
+        setError(res.error || '停止辩论失败')
+      }
+    } catch (error) {
+      setError(error instanceof Error ? error.message : '停止辩论失败')
+    } finally {
+      setIsAborting(false)
+    }
+  }, [roomId, session?.id, refreshLatestSession])
 
   // 应用结算
   const handleApplySettlement = useCallback(async () => {
@@ -186,7 +222,9 @@ const DebatePanel: React.FC<DebatePanelProps> = ({ roomId }) => {
       <NewSessionPanel
         roomId={roomId}
         isRunning={isRunning}
+        isAborting={isAborting}
         onStartDebate={handleStartDebate}
+        onAbortDebate={handleAbortDebate}
         validation={validation}
       />
 

@@ -11,6 +11,7 @@ export type ToolCall = Record<string, unknown>
 export type ProviderRequest = {
   messages: DebateMessage[]
   model: string
+  signal?: AbortSignal
   temperature?: number
   maxTokens?: number
   stream?: boolean

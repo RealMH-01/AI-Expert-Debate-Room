@@ -707,6 +707,11 @@ html, body, #root {
   color: var(--color-error);
 }
 
+.status-aborted {
+  background-color: rgba(160, 160, 176, 0.2);
+  color: var(--color-text-muted);
+}
+
 .session-message-count {
   font-size: 11px;
   color: var(--color-text-muted);

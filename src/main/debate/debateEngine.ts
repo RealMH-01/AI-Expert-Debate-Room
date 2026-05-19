@@ -54,6 +54,7 @@ import { normalizeProviderDebateOutput } from '../claims/claimTracker'
 import { buildSessionContextSummary } from '../context/contextCompressor'
 import { trackModelCallUsage } from '../cost/usageTracker'
 import { ensureMemorySuggestionsForMeeting } from '../memory/projectMemory'
+import { DebateAbortError, isDebateAbortError } from '../providers/abort'
 
 /**
  * 会议运行中的回调接口
@@ -70,7 +71,16 @@ export interface DebateEngineCallbacks {
 /**
  * 正在运行的会议集合 - 防止重复启动
  */
-const runningSessions = new Set<string>()
+interface RunningDebateInfo {
+  sessionId: string
+  controller: AbortController
+  callbacks: DebateEngineCallbacks
+}
+
+const runningSessions = new Map<string, RunningDebateInfo>()
+
+const USER_ABORT_MESSAGE =
+  '用户已中止本次辩论。已保留中止前生成的内容，后续专家发言、投票、结算和总结不会继续执行。'
 
 /**
  * 等待用户确认结算的会议信息
@@ -86,6 +96,7 @@ interface PendingSettlementInfo {
   totalRounds: number
   transcript: TranscriptEntry[]
   callbacks: DebateEngineCallbacks
+  signal: AbortSignal
   settlementRecordId: string
   settlementResult: SettlementResult
 }
@@ -204,6 +215,7 @@ export async function startDebate(
   // 创建 Session
   const title = `${room.name} - ${userQuestion.slice(0, 30)}${userQuestion.length > 30 ? '...' : ''}`
   let session = sessionRepo.createSession(roomId, title, userQuestion)
+  const abortController = new AbortController()
 
   // Save participant snapshots at session start (moderator + experts)
   participantRepo.insertParticipants(session.id, [moderator, ...experts])
@@ -213,12 +225,17 @@ export async function startDebate(
     callbacks.onError('当前会议室已有运行中的会议流程')
     return null
   }
-  runningSessions.add(roomId)
+  runningSessions.set(roomId, {
+    sessionId: session.id,
+    controller: abortController,
+    callbacks
+  })
 
   // 用于累积 transcript
   const transcript: TranscriptEntry[] = []
 
   try {
+    throwIfAborted(abortController.signal)
     // === Step 1: 主理人开场 ===
     session = await runModeratorOpening(
       session,
@@ -229,7 +246,8 @@ export async function startDebate(
       rules,
       room.name,
       transcript,
-      callbacks
+      callbacks,
+      abortController.signal
     )
 
     // === Step 2: 专家首轮独立回答 ===
@@ -241,7 +259,8 @@ export async function startDebate(
       rules,
       room.name,
       transcript,
-      callbacks
+      callbacks,
+      abortController.signal
     )
 
     // === Step 3: 多轮辩论 ===
@@ -256,7 +275,8 @@ export async function startDebate(
         room.name,
         round,
         transcript,
-        callbacks
+        callbacks,
+        abortController.signal
       )
     }
 
@@ -268,7 +288,8 @@ export async function startDebate(
       rules,
       minDebateRounds,
       transcript,
-      callbacks
+      callbacks,
+      abortController.signal
     )
 
     // === Step 5: 如果投票阶段生成了 settlement preview，等待用户确认 ===
@@ -303,6 +324,7 @@ export async function startDebate(
         totalRounds: minDebateRounds,
         transcript,
         callbacks,
+        signal: abortController.signal,
         settlementRecordId: settlementRecord.id,
         settlementResult: votingResult
       })
@@ -323,7 +345,8 @@ export async function startDebate(
       room.name,
       minDebateRounds,
       transcript,
-      callbacks
+      callbacks,
+      abortController.signal
     )
 
     // === Step 7: 标记完成 ===
@@ -331,13 +354,20 @@ export async function startDebate(
 
     return session
   } catch (error: unknown) {
+    if (isDebateAbortError(error)) {
+      const abortedSession = markSessionAborted(session, callbacks)
+      callbacks.onSessionFinished(abortedSession)
+      return abortedSession
+    }
     const errorMsg = error instanceof Error ? error.message : '未知错误'
     console.error('[DebateEngine] 辩论过程出错:', errorMsg)
     sessionRepo.failSession(session.id, errorMsg)
     callbacks.onError(`辩论过程出错: ${errorMsg}`)
     return null
   } finally {
-    runningSessions.delete(roomId)
+    if (!pendingSettlements.has(session.id)) {
+      runningSessions.delete(roomId)
+    }
   }
 }
 
@@ -381,6 +411,38 @@ function providerLabel(agent: Agent, provider: DebateModelProvider): string {
 
 function modelLabel(agent: Agent, provider: DebateModelProvider): string {
   return agent.model || provider.name || 'unknown'
+}
+
+function throwIfAborted(signal: AbortSignal): void {
+  if (signal.aborted) {
+    const reason = signal.reason
+    throw isDebateAbortError(reason) ? reason : new DebateAbortError()
+  }
+}
+
+function markSessionAborted(
+  session: Session,
+  callbacks: DebateEngineCallbacks,
+  reason = USER_ABORT_MESSAGE
+): Session {
+  const currentSession = sessionRepo.getSessionById(session.id) ?? session
+  if (currentSession.status === 'aborted') {
+    return currentSession
+  }
+
+  const abortMessage = messageRepo.insertMessage({
+    sessionId: session.id,
+    roundIndex: 0,
+    phase: currentSession.current_phase ?? 'moderator_opening',
+    speakerId: null,
+    speakerName: '系统',
+    speakerRole: 'system',
+    content: USER_ABORT_MESSAGE,
+    structuredJson: JSON.stringify({ type: 'debate_aborted', reason: 'user' })
+  })
+  callbacks.onMessage(abortMessage)
+
+  return sessionRepo.abortSession(session.id, reason) ?? currentSession
 }
 
 async function trackDebateCall(
@@ -443,8 +505,10 @@ async function runModeratorOpening(
   rules: RulesConfig,
   roomName: string,
   transcript: TranscriptEntry[],
-  callbacks: DebateEngineCallbacks
+  callbacks: DebateEngineCallbacks,
+  signal: AbortSignal
 ): Promise<Session> {
+  throwIfAborted(signal)
   const phase: DebatePhase = 'moderator_opening'
   session = sessionRepo.updateSessionPhase(session.id, phase)!
   callbacks.onPhaseChange(phase, session)
@@ -458,7 +522,8 @@ async function runModeratorOpening(
     visibleTranscript: transcript,
     otherExperts: experts,
     rules,
-    roomName
+    roomName,
+    signal
   }
 
   const output = await trackDebateCall(
@@ -502,8 +567,10 @@ async function runInitialAnswers(
   rules: RulesConfig,
   roomName: string,
   transcript: TranscriptEntry[],
-  callbacks: DebateEngineCallbacks
+  callbacks: DebateEngineCallbacks,
+  signal: AbortSignal
 ): Promise<Session> {
+  throwIfAborted(signal)
   const phase: DebatePhase = 'expert_initial'
   session = sessionRepo.updateSessionPhase(session.id, phase)!
   callbacks.onPhaseChange(phase, session)
@@ -513,6 +580,7 @@ async function runInitialAnswers(
   const initialVisibleTranscript = [...transcript]
 
   for (const expert of experts) {
+    throwIfAborted(signal)
     const otherExperts = experts.filter((e) => e.id !== expert.id)
 
     const input: DebateGenerateInput = {
@@ -524,7 +592,8 @@ async function runInitialAnswers(
       visibleTranscript: initialVisibleTranscript,
       otherExperts,
       rules,
-      roomName
+      roomName,
+      signal
     }
 
     // 使用该专家自身配置的 Provider
@@ -566,6 +635,7 @@ async function runInitialAnswers(
 
       callbacks.onMessage(message)
     } catch (error: unknown) {
+      if (isDebateAbortError(error)) throw error
       // 单个专家失败：记录失败消息，继续其他专家
       const errorMsg = error instanceof Error ? error.message : '未知错误'
       console.error(`[DebateEngine] 专家 "${expert.name}" 首轮回答失败:`, errorMsg)
@@ -597,14 +667,17 @@ async function runDebateRound(
   roomName: string,
   roundIndex: number,
   transcript: TranscriptEntry[],
-  callbacks: DebateEngineCallbacks
+  callbacks: DebateEngineCallbacks,
+  signal: AbortSignal
 ): Promise<Session> {
+  throwIfAborted(signal)
   const debatePhase: DebatePhase = 'debate_round'
   session = sessionRepo.updateSessionPhase(session.id, debatePhase)!
   callbacks.onPhaseChange(debatePhase, session)
 
   // 每个专家发言一次
   for (const expert of experts) {
+    throwIfAborted(signal)
     const otherExperts = experts.filter((e) => e.id !== expert.id)
 
     const input: DebateGenerateInput = {
@@ -616,7 +689,8 @@ async function runDebateRound(
       visibleTranscript: transcript,
       otherExperts,
       rules,
-      roomName
+      roomName,
+      signal
     }
 
     // 使用该专家自身配置的 Provider
@@ -657,6 +731,7 @@ async function runDebateRound(
 
       callbacks.onMessage(message)
     } catch (error: unknown) {
+      if (isDebateAbortError(error)) throw error
       // 单个专家失败：记录失败消息，继续其他专家
       const errorMsg = error instanceof Error ? error.message : '未知错误'
       console.error(`[DebateEngine] 专家 "${expert.name}" 第 ${roundIndex} 轮发言失败:`, errorMsg)
@@ -675,6 +750,7 @@ async function runDebateRound(
     }
   }
 
+  throwIfAborted(signal)
   // 主理人轮次总结
   const summaryPhase: DebatePhase = 'moderator_round_summary'
   session = sessionRepo.updateSessionPhase(session.id, summaryPhase)!
@@ -689,7 +765,8 @@ async function runDebateRound(
     visibleTranscript: transcript,
     otherExperts: experts,
     rules,
-    roomName
+    roomName,
+    signal
   }
 
   const summaryOutput = await trackDebateCall(
@@ -737,8 +814,10 @@ async function runFinalSummary(
   roomName: string,
   totalRounds: number,
   transcript: TranscriptEntry[],
-  callbacks: DebateEngineCallbacks
+  callbacks: DebateEngineCallbacks,
+  signal: AbortSignal
 ): Promise<Session> {
+  throwIfAborted(signal)
   const phase: DebatePhase = 'moderator_final_summary'
   session = sessionRepo.updateSessionPhase(session.id, phase)!
   callbacks.onPhaseChange(phase, session)
@@ -752,7 +831,8 @@ async function runFinalSummary(
     visibleTranscript: transcript,
     otherExperts: experts,
     rules,
-    roomName
+    roomName,
+    signal
   }
 
   const output = await trackDebateCall(
@@ -800,6 +880,35 @@ async function runFinalSummary(
  */
 export function isDebateRunning(roomId: string): boolean {
   return runningSessions.has(roomId)
+}
+
+/**
+ * 中止某个会议室当前运行或等待结算的辩论
+ */
+export function abortDebate(roomId: string): boolean {
+  const running = runningSessions.get(roomId)
+  if (!running) return false
+
+  const pending = pendingSettlements.get(running.sessionId)
+  if (pending) {
+    if (!running.controller.signal.aborted) {
+      running.controller.abort(new DebateAbortError())
+    }
+    const pendingRecord = settlementRepo.getPendingSettlement(running.sessionId)
+    if (pendingRecord?.id === pending.settlementRecordId) {
+      settlementRepo.updateSettlementStatus(pending.settlementRecordId, 'vetoed')
+    }
+    const abortedSession = markSessionAborted(pending.session, pending.callbacks)
+    pendingSettlements.delete(running.sessionId)
+    runningSessions.delete(roomId)
+    pending.callbacks.onSessionFinished(abortedSession)
+    return true
+  }
+
+  if (!running.controller.signal.aborted) {
+    running.controller.abort(new DebateAbortError())
+  }
+  return true
 }
 
 /**
@@ -852,8 +961,10 @@ async function runVotingPhase(
   rules: RulesConfig,
   totalRounds: number,
   transcript: TranscriptEntry[],
-  callbacks: DebateEngineCallbacks
+  callbacks: DebateEngineCallbacks,
+  signal: AbortSignal
 ): Promise<SettlementResult | null> {
+  throwIfAborted(signal)
   // 获取当前存活专家
   const aliveExperts = experts.filter((e) => e.status === 'active')
 
@@ -921,6 +1032,7 @@ async function runVotingPhase(
 
   // 匿名同时投票：每个专家独立生成投票，不传入其他专家的投票结果
   for (const voter of aliveExperts) {
+    throwIfAborted(signal)
     const voterProvider = getProviderForAgent(voter)
 
     let voteOutput: { rawJson: string }
@@ -929,7 +1041,8 @@ async function runVotingPhase(
         voter,
         aliveExperts,
         visibleTranscript: transcript,
-        userQuestion
+        userQuestion,
+        signal
       }
       voteOutput = await trackVoteCall(
         session.id,
@@ -940,6 +1053,7 @@ async function runVotingPhase(
         () => voterProvider.generateExpertVote(voteInput)
       )
     } catch (error: unknown) {
+      if (isDebateAbortError(error)) throw error
       // 投票生成失败：记录系统消息，跳过此专家
       const errorMsg = error instanceof Error ? error.message : '未知错误'
       console.error(`[DebateEngine] 专家 "${voter.name}" 投票生成失败:`, errorMsg)
@@ -1183,7 +1297,8 @@ async function applySettlementWithContext(
     roomName,
     totalRounds,
     transcript,
-    callbacks
+    callbacks,
+    signal
   } = info
 
   try {
@@ -1278,7 +1393,8 @@ async function applySettlementWithContext(
       roomName,
       totalRounds,
       transcript,
-      callbacks
+      callbacks,
+      signal
     )
 
     callbacks.onSessionFinished(finalSession)
@@ -1287,6 +1403,13 @@ async function applySettlementWithContext(
 
     return { success: true, session: finalSession }
   } catch (error: unknown) {
+    if (isDebateAbortError(error)) {
+      const abortedSession = markSessionAborted(session, callbacks)
+      pendingSettlements.delete(sessionId)
+      runningSessions.delete(session.room_id)
+      callbacks.onSessionFinished(abortedSession)
+      return { success: true, session: abortedSession }
+    }
     const errorMsg = error instanceof Error ? error.message : '未知错误'
     return { success: false, error: errorMsg }
   }
@@ -1428,7 +1551,8 @@ async function vetoSettlementWithContext(
     roomName,
     totalRounds,
     transcript,
-    callbacks
+    callbacks,
+    signal
   } = info
 
   try {
@@ -1477,7 +1601,8 @@ async function vetoSettlementWithContext(
       roomName,
       totalRounds,
       transcript,
-      callbacks
+      callbacks,
+      signal
     )
 
     callbacks.onSessionFinished(finalSession)
@@ -1486,6 +1611,13 @@ async function vetoSettlementWithContext(
 
     return { success: true, session: finalSession }
   } catch (error: unknown) {
+    if (isDebateAbortError(error)) {
+      const abortedSession = markSessionAborted(session, callbacks)
+      pendingSettlements.delete(sessionId)
+      runningSessions.delete(session.room_id)
+      callbacks.onSessionFinished(abortedSession)
+      return { success: true, session: abortedSession }
+    }
     const errorMsg = error instanceof Error ? error.message : '未知错误'
     return { success: false, error: errorMsg }
   }

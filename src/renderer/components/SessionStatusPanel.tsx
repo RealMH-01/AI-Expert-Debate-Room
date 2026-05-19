@@ -30,7 +30,8 @@ const STATUS_CONFIG = {
   preparing: { label: '准备中', className: 'status-preparing' },
   running: { label: '运行中', className: 'status-running' },
   finished: { label: '已完成', className: 'status-finished' },
-  failed: { label: '失败', className: 'status-failed' }
+  failed: { label: '失败', className: 'status-failed' },
+  aborted: { label: '已中止', className: 'status-aborted' }
 } as const
 
 const SessionStatusPanel: React.FC<SessionStatusPanelProps> = ({
@@ -83,6 +84,12 @@ const SessionStatusPanel: React.FC<SessionStatusPanelProps> = ({
       {session.status === 'failed' && session.final_summary && (
         <div className="session-error-info">
           {session.final_summary}
+        </div>
+      )}
+
+      {session.status === 'aborted' && (
+        <div className="session-finished-info">
+          已中止。本次辩论中止前的内容已保留。
         </div>
       )}
     </div>

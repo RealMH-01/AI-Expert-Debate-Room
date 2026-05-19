@@ -41,6 +41,8 @@ const api = {
   debateValidate: (roomId: string) => ipcRenderer.invoke('debate:validate', roomId),
   debateStart: (params: { roomId: string; userQuestion: string }) =>
     ipcRenderer.invoke('debate:start', params),
+  debateAbort: (params: { roomId: string; sessionId?: string }) =>
+    ipcRenderer.invoke('debate:abort', params),
   debateIsRunning: (roomId: string) => ipcRenderer.invoke('debate:is-running', roomId),
   sessionGetById: (sessionId: string) => ipcRenderer.invoke('session:get-by-id', sessionId),
   sessionGetByRoom: (roomId: string) => ipcRenderer.invoke('session:get-by-room', roomId),

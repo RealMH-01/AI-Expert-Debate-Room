@@ -9,7 +9,7 @@
 
 import { ipcMain, BrowserWindow } from 'electron'
 import { IPC_CHANNELS } from './channels'
-import { validateRoomCanStart, startDebate, isDebateRunning } from '../debate/debateEngine'
+import { validateRoomCanStart, startDebate, isDebateRunning, abortDebate } from '../debate/debateEngine'
 import * as sessionRepo from '../db/repositories/sessionRepository'
 import * as messageRepo from '../db/repositories/messageRepository'
 import type { Session, Message, DebatePhase } from '../../shared/types'
@@ -109,6 +109,24 @@ export function registerDebateIpc(): void {
   )
 
   // 检查是否正在运行
+  ipcMain.handle(
+    IPC_CHANNELS.DEBATE_ABORT,
+    async (_event, params: { roomId: string; sessionId?: string }) => {
+      try {
+        const aborted = abortDebate(params.roomId)
+        if (!aborted) {
+          return { success: false, error: '当前会议室没有正在运行的辩论' }
+        }
+        return {
+          success: true,
+          data: { aborted: true, roomId: params.roomId, sessionId: params.sessionId }
+        }
+      } catch (error: unknown) {
+        return { success: false, error: (error as Error).message }
+      }
+    }
+  )
+
   ipcMain.handle(IPC_CHANNELS.DEBATE_IS_RUNNING, async (_event, roomId: string) => {
     try {
       return { success: true, data: isDebateRunning(roomId) }

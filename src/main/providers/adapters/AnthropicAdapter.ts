@@ -2,6 +2,7 @@ import { getProviderConfig } from '../providerSettings'
 import { requestQueue } from '../requestQueue'
 import type { ProviderRequest, ProviderResponse } from '../types'
 import { joinUrl, sanitizeErrorMessage } from '../types'
+import { createCombinedAbortSignal, DebateAbortError, isDebateAbortError } from '../abort'
 import { BaseAdapter } from './BaseAdapter'
 
 export function buildAnthropicMessagesRequest(request: ProviderRequest): {
@@ -99,19 +100,34 @@ export class AnthropicAdapter extends BaseAdapter {
       if (!config?.apiKey) throw new Error('Provider "anthropic" is missing API Key.')
       if (!config.enabled) throw new Error('Provider "anthropic" is disabled.')
       const built = buildAnthropicMessagesRequest(request)
-      const response = await fetch(joinUrl(config.baseUrl || 'https://api.anthropic.com', 'v1/messages'), {
-        method: 'POST',
-        headers: {
-          ...built.headers,
-          'x-api-key': config.apiKey,
-          ...(config.defaultHeaders || {})
-        },
-        body: JSON.stringify(built.body)
-      })
-      if (!response.ok) {
-        throw new Error(sanitizeErrorMessage(await response.text().catch(() => response.statusText)))
+      const abort = createCombinedAbortSignal(request.signal, config.timeout || 60000)
+      try {
+        const response = await fetch(joinUrl(config.baseUrl || 'https://api.anthropic.com', 'v1/messages'), {
+          method: 'POST',
+          headers: {
+            ...built.headers,
+            'x-api-key': config.apiKey,
+            ...(config.defaultHeaders || {})
+          },
+          body: JSON.stringify(built.body),
+          signal: abort.signal
+        })
+        if (!response.ok) {
+          throw new Error(sanitizeErrorMessage(await response.text().catch(() => response.statusText)))
+        }
+        return parseAnthropicResponse(await response.json(), this.model)
+      } catch (error) {
+        if (isDebateAbortError(error)) throw error
+        if (error instanceof Error && error.name === 'AbortError') {
+          if (abort.getAbortReason() === 'external') throw new DebateAbortError()
+          throw new Error('network: request timeout')
+        }
+        throw error instanceof Error
+          ? new Error(sanitizeErrorMessage(error.message))
+          : new Error('unknown: provider request failed')
+      } finally {
+        abort.cleanup()
       }
-      return parseAnthropicResponse(await response.json(), this.model)
     })
   }
 }

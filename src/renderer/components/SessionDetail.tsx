@@ -1266,7 +1266,8 @@ function formatStatus(status: string): string {
     preparing: '准备中',
     running: '进行中',
     finished: '已完成',
-    failed: '失败'
+    failed: '失败',
+    aborted: '已中止'
   }
   return map[status] || status
 }

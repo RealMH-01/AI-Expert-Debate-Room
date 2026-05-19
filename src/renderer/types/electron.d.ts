@@ -72,6 +72,7 @@ export interface ElectronAPI {
   // Debate / Session
   debateValidate: (roomId: string) => Promise<IpcResponse<ValidationResult>>
   debateStart: (params: { roomId: string; userQuestion: string }) => Promise<IpcResponse<{ started: boolean; roomId: string }>>
+  debateAbort: (params: { roomId: string; sessionId?: string }) => Promise<IpcResponse<{ aborted: boolean; roomId: string; sessionId?: string }>>
   debateIsRunning: (roomId: string) => Promise<IpcResponse<boolean>>
   sessionGetById: (sessionId: string) => Promise<IpcResponse<Session>>
   sessionGetByRoom: (roomId: string) => Promise<IpcResponse<Session[]>>

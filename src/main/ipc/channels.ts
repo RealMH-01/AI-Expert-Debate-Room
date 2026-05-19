@@ -47,6 +47,7 @@ export const IPC_CHANNELS = {
   DEBATE_VALIDATE: 'debate:validate',
   /** 启动辩论 */
   DEBATE_START: 'debate:start',
+  DEBATE_ABORT: 'debate:abort',
   /** 获取辩论运行状态 */
   DEBATE_IS_RUNNING: 'debate:is-running',
   /** 获取会议信息 */

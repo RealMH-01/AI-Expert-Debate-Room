@@ -136,7 +136,7 @@ export interface ProviderInfo {
 
 // ===== Session 类型 =====
 
-export type SessionStatus = 'preparing' | 'running' | 'finished' | 'failed'
+export type SessionStatus = 'preparing' | 'running' | 'finished' | 'failed' | 'aborted'
 
 export type DebatePhase =
   | 'moderator_opening'
