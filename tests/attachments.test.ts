@@ -2,8 +2,9 @@ import { readFileSync } from 'node:fs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  MAX_EXTRACTED_ATTACHMENT_CHARS,
   MAX_ATTACHMENT_SIZE_BYTES,
-  MAX_TOTAL_ATTACHMENT_TEXT_BYTES,
+  MAX_TOTAL_ATTACHMENT_TEXT_CHARS,
   validateDebateAttachments
 } from '../src/shared/attachments'
 import { formatSharedAttachmentsForPrompt } from '../src/main/prompts/attachmentPrompts'
@@ -133,13 +134,25 @@ afterEach(() => {
 })
 
 describe('attachment input validation', () => {
-  it('accepts txt, md, markdown, json, and csv files', () => {
+  it('accepts common text, office, pdf, and code files after text extraction', () => {
     const attachments = [
       createAttachment('notes.txt', 'text'),
       createAttachment('outline.md', '# outline'),
       createAttachment('world.markdown', '# world'),
       createAttachment('data.json', '{"ok":true}'),
-      createAttachment('beats.csv', 'a,b')
+      createAttachment('events.jsonl', '{"ok":true}\n'),
+      createAttachment('beats.csv', 'a,b'),
+      createAttachment('table.tsv', 'a\tb'),
+      createAttachment('server.log', 'INFO ready'),
+      createAttachment('config.yaml', 'ok: true'),
+      createAttachment('page.html', '<p>Hello</p>'),
+      createAttachment('report.docx', 'Word text'),
+      createAttachment('sheet.xlsx', '[Sheet: Sheet1]\ncell'),
+      createAttachment('legacy.xls', '[Sheet: Sheet1]\ncell'),
+      createAttachment('slides.pptx', '[Slide 1]\nhello'),
+      createAttachment('paper.pdf', '[Page 1]\nhello'),
+      createAttachment('script.ts', 'const ok = true'),
+      createAttachment('.gitignore', 'dist')
     ]
 
     expect(validateDebateAttachments(attachments)).toEqual({
@@ -151,15 +164,15 @@ describe('attachment input validation', () => {
 
   it('rejects unsupported file extensions', () => {
     const result = validateDebateAttachments([
-      createAttachment('draft.pdf', 'not allowed')
+      createAttachment('draft.doc', 'not allowed')
     ])
 
     expect(result.valid).toBe(false)
-    expect(result.errors.join('\n')).toContain('draft.pdf')
-    expect(result.errors.join('\n')).toContain('不支持')
+    expect(result.errors.join('\n')).toContain('draft.doc')
+    expect(result.errors.join('\n')).toContain('请另存为 .docx/.xlsx/.pptx 或 PDF 后上传')
   })
 
-  it('rejects a single file over 200KB', () => {
+  it('rejects a single file over the source file size limit', () => {
     const result = validateDebateAttachments([
       createAttachment('large.txt', 'x', {
         sizeBytes: MAX_ATTACHMENT_SIZE_BYTES + 1
@@ -170,21 +183,22 @@ describe('attachment input validation', () => {
     expect(result.errors.join('\n')).toContain('过大')
   })
 
-  it('rejects a file whose content is over 200KB even when sizeBytes is spoofed smaller', () => {
+  it('rejects a file whose extracted text is over 100000 characters', () => {
     const result = validateDebateAttachments([
-      createAttachment('spoofed.txt', 'x'.repeat(MAX_ATTACHMENT_SIZE_BYTES + 1), {
+      createAttachment('spoofed.txt', 'x'.repeat(MAX_EXTRACTED_ATTACHMENT_CHARS + 1), {
         sizeBytes: 1
       })
     ])
 
     expect(result.valid).toBe(false)
-    expect(result.errors.join('\n')).toContain('过大')
+    expect(result.errors.join('\n')).toContain('提取文本过大')
   })
 
-  it('rejects total attachment text over 300KB', () => {
+  it('rejects total attachment text over 300000 characters', () => {
     const result = validateDebateAttachments([
-      createAttachment('a.txt', 'a'.repeat(150 * 1024)),
-      createAttachment('b.txt', 'b'.repeat(150 * 1024)),
+      createAttachment('a.txt', 'a'.repeat(MAX_EXTRACTED_ATTACHMENT_CHARS)),
+      createAttachment('b.txt', 'b'.repeat(MAX_EXTRACTED_ATTACHMENT_CHARS)),
+      createAttachment('d.txt', 'd'.repeat(MAX_TOTAL_ATTACHMENT_TEXT_CHARS - 2 * MAX_EXTRACTED_ATTACHMENT_CHARS)),
       createAttachment('c.txt', 'c')
     ])
 

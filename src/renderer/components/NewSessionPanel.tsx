@@ -8,12 +8,18 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import type { DebateAttachmentInput, ValidationResult } from '../../shared/types'
 import {
-  MAX_ATTACHMENT_SIZE_BYTES,
-  MAX_TOTAL_ATTACHMENT_TEXT_BYTES,
-  byteLength,
-  isSupportedAttachmentName,
+  MAX_DOCUMENT_ATTACHMENT_SIZE_BYTES,
+  MAX_EXTRACTED_ATTACHMENT_CHARS,
+  MAX_TEXT_ATTACHMENT_SIZE_BYTES,
+  MAX_TOTAL_ATTACHMENT_TEXT_CHARS,
+  getAttachmentKind,
   validateDebateAttachments
 } from '../../shared/attachments'
+import {
+  canAddExtractedAttachmentText,
+  extractAttachmentText,
+  getAttachmentAcceptValue
+} from '../utils/attachmentTextExtractor'
 import {
   estimateRoughTokens,
   finalizeNewSessionDraft,
@@ -40,9 +46,11 @@ interface LocalAttachmentCard {
   mimeType?: string | null
   sizeBytes: number
   charCount: number
+  detectedKind: string
   contentText: string
   status: AttachmentCardStatus
   message: string
+  warnings?: string[]
 }
 
 const NewSessionPanel: React.FC<NewSessionPanelProps> = ({
@@ -119,30 +127,22 @@ const NewSessionPanel: React.FC<NewSessionPanelProps> = ({
   const addFiles = useCallback(async (fileList: FileList | File[]) => {
     const files = Array.from(fileList)
     const newCards: LocalAttachmentCard[] = []
-    let totalTextBytes = attachments
+    let totalTextChars = attachments
       .filter((attachment) => attachment.status === 'ready')
-      .reduce((sum, attachment) => sum + byteLength(attachment.contentText), 0)
+      .reduce((sum, attachment) => sum + attachment.contentText.length, 0)
 
     for (const file of files) {
       const id = `${file.name}-${file.size}-${file.lastModified}-${Math.random().toString(36).slice(2)}`
 
-      if (!isSupportedAttachmentName(file.name)) {
-        newCards.push(createRejectedCard(file, id, 'unsupported', '不支持，当前仅支持 .txt/.md/.markdown/.json/.csv'))
-        continue
-      }
-
-      if (file.size > MAX_ATTACHMENT_SIZE_BYTES) {
-        newCards.push(createRejectedCard(file, id, 'too_large', '过大，单个文件最大 200KB'))
-        continue
-      }
-
       try {
-        const contentText = await file.text()
-        const nextTotal = totalTextBytes + byteLength(contentText)
-        if (nextTotal > MAX_TOTAL_ATTACHMENT_TEXT_BYTES) {
+        const extraction = await extractAttachmentText(file)
+        const totalCheck = canAddExtractedAttachmentText(totalTextChars, extraction.contentText)
+        if (!totalCheck.allowed) {
           newCards.push({
-            ...createRejectedCard(file, id, 'too_large', '过大，公共素材总文本最大 300KB'),
-            charCount: contentText.length
+            ...createRejectedCard(file, id, 'too_large', totalCheck.message ?? '过大，公共素材总文本已达上限'),
+            charCount: extraction.contentText.length,
+            detectedKind: extraction.detectedKind,
+            warnings: extraction.warnings
           })
           continue
         }
@@ -152,7 +152,7 @@ const NewSessionPanel: React.FC<NewSessionPanelProps> = ({
             originalName: file.name,
             mimeType: file.type || null,
             sizeBytes: file.size,
-            contentText
+            contentText: extraction.contentText
           }
         ])
         if (!validation.valid) {
@@ -160,19 +160,25 @@ const NewSessionPanel: React.FC<NewSessionPanelProps> = ({
           continue
         }
 
-        totalTextBytes = nextTotal
+        totalTextChars += extraction.contentText.length
         newCards.push({
           id,
           originalName: file.name,
           mimeType: file.type || null,
           sizeBytes: file.size,
-          charCount: contentText.length,
-          contentText,
+          charCount: extraction.contentText.length,
+          detectedKind: extraction.detectedKind,
+          contentText: extraction.contentText,
           status: 'ready',
-          message: '已读取'
+          message: extraction.warnings?.length
+            ? `已读取；${extraction.warnings.join('；')}`
+            : '已读取',
+          warnings: extraction.warnings
         })
-      } catch {
-        newCards.push(createRejectedCard(file, id, 'read_error', '读取失败'))
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '读取失败'
+        const status = getRejectedStatus(file, message)
+        newCards.push(createRejectedCard(file, id, status, message))
       }
     }
 
@@ -255,7 +261,7 @@ const NewSessionPanel: React.FC<NewSessionPanelProps> = ({
         <div className="session-input-stats">
           <span>问题：{questionCharCount} 字符 · 约 {roughTokenCount} tokens</span>
           <span>
-            公共素材：{attachmentStats.readyCount} 个文件 · {formatBytes(attachmentStats.readyTextBytes)} 文本
+            上传资料：{attachmentStats.readyCount} 个文件 · {formatBytes(attachmentStats.readyTextBytes)} 文本
             {attachmentStats.rejectedCount > 0 ? ` · ${attachmentStats.rejectedCount} 个已拒绝` : ''}
           </span>
         </div>
@@ -264,7 +270,7 @@ const NewSessionPanel: React.FC<NewSessionPanelProps> = ({
 
       <div className="form-group">
         <div className="attachment-label-row">
-          <label className="form-label">公共素材：所有专家和主持人都能看到</label>
+          <label className="form-label">上传资料 / 添加公共素材：所有专家和主持人都能看到</label>
           {attachments.length > 0 && (
             <button
               type="button"
@@ -277,7 +283,7 @@ const NewSessionPanel: React.FC<NewSessionPanelProps> = ({
           )}
         </div>
         <div className="attachment-limit-hint">
-          支持 .txt/.md/.markdown/.json/.csv · 单文件最大 200KB · 总文本最大 300KB ·
+          支持 Word / PDF / Excel / PPT / Markdown / CSV / 日志 / 代码等 · 文本/代码最大 {formatBytes(MAX_TEXT_ATTACHMENT_SIZE_BYTES)} · Office/PDF 最大 {formatBytes(MAX_DOCUMENT_ATTACHMENT_SIZE_BYTES)} · 单文件提取最多 {MAX_EXTRACTED_ATTACHMENT_CHARS.toLocaleString()} 字符 · 总文本最多 {MAX_TOTAL_ATTACHMENT_TEXT_CHARS.toLocaleString()} 字符 ·
           已就绪 {attachmentStats.readyCount} 个，已拒绝 {attachmentStats.rejectedCount} 个
         </div>
         <div
@@ -298,7 +304,7 @@ const NewSessionPanel: React.FC<NewSessionPanelProps> = ({
             type="file"
             className="attachment-file-input"
             multiple
-            accept=".txt,.md,.markdown,.json,.csv"
+            accept={getAttachmentAcceptValue()}
             onChange={handleFileInputChange}
             disabled={inputDisabled}
           />
@@ -308,9 +314,9 @@ const NewSessionPanel: React.FC<NewSessionPanelProps> = ({
             onClick={handleChooseFiles}
             disabled={inputDisabled}
           >
-            选择文本文件
+            上传资料
           </button>
-          <span className="attachment-drop-hint">或拖拽到这里</span>
+          <span className="attachment-drop-hint">或拖拽资料到这里</span>
         </div>
 
         {attachments.length > 0 && (
@@ -320,7 +326,7 @@ const NewSessionPanel: React.FC<NewSessionPanelProps> = ({
                 <div className="attachment-card-main">
                   <div className="attachment-name">{attachment.originalName}</div>
                   <div className="attachment-meta">
-                    {formatBytes(attachment.sizeBytes)} · {attachment.charCount} 字符 · {formatAttachmentStatus(attachment.status)}
+                    {attachment.detectedKind} · {formatBytes(attachment.sizeBytes)} · 提取 {attachment.charCount} 字符 · {formatAttachmentStatus(attachment.status)}
                   </div>
                   <div className="attachment-message">{attachment.message}</div>
                 </div>
@@ -384,6 +390,7 @@ function createRejectedCard(
     mimeType: file.type || null,
     sizeBytes: file.size,
     charCount: 0,
+    detectedKind: getAttachmentKind(file.name)?.label ?? '不支持',
     contentText: '',
     status,
     message
@@ -400,7 +407,17 @@ function formatAttachmentStatus(status: AttachmentCardStatus): string {
   return map[status]
 }
 
+function getRejectedStatus(
+  file: File,
+  message: string
+): Exclude<AttachmentCardStatus, 'ready'> {
+  if (!getAttachmentKind(file.name)) return 'unsupported'
+  if (message.includes('过大') || message.includes('总文本最大')) return 'too_large'
+  return 'read_error'
+}
+
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
-  return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
