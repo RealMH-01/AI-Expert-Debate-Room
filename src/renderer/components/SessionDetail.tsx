@@ -176,7 +176,7 @@ interface DetailAttachment {
   originalName: string
   mimeType?: string | null
   sizeBytes: number
-  contentText: string
+  contentLength: number
   summaryText?: string | null
   status?: string
   createdAt?: string
@@ -614,7 +614,7 @@ const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId, onBack }) => {
                       <tr key={attachment.id || attachment.originalName}>
                         <td>{attachment.originalName}</td>
                         <td>{formatBytes(attachment.sizeBytes)}</td>
-                        <td>{attachment.contentText.length}</td>
+                        <td>{attachment.contentLength}</td>
                       </tr>
                     ))}
                   </tbody>

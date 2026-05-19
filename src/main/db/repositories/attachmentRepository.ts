@@ -1,6 +1,10 @@
 import { v4 as uuidv4 } from 'uuid'
 import { getDatabase } from '../sqlite'
-import type { DebateAttachmentContext, DebateAttachmentInput } from '../../../shared/types'
+import type {
+  DebateAttachmentContext,
+  DebateAttachmentInput,
+  DebateAttachmentMetadata
+} from '../../../shared/types'
 
 interface AttachmentRow {
   id: string
@@ -9,6 +13,18 @@ interface AttachmentRow {
   mime_type: string | null
   size_bytes: number
   content_text: string
+  summary_text: string | null
+  status: string
+  created_at: string
+}
+
+interface AttachmentMetadataRow {
+  id: string
+  session_id: string | null
+  original_name: string
+  mime_type: string | null
+  size_bytes: number
+  content_length: number
   summary_text: string | null
   status: string
   created_at: string
@@ -79,6 +95,29 @@ export function getAttachmentsBySession(sessionId: string): DebateAttachmentCont
   return rows.map(rowToContext)
 }
 
+export function getAttachmentMetadataBySession(sessionId: string): DebateAttachmentMetadata[] {
+  const db = getDatabase()
+  const rows = db
+    .prepare(
+      `SELECT
+        id,
+        session_id,
+        original_name,
+        mime_type,
+        size_bytes,
+        length(content_text) AS content_length,
+        summary_text,
+        status,
+        created_at
+      FROM attachments
+      WHERE session_id = ?
+      ORDER BY created_at ASC`
+    )
+    .all(sessionId) as AttachmentMetadataRow[]
+
+  return rows.map(rowToMetadata)
+}
+
 function rowToContext(row: AttachmentRow): DebateAttachmentContext {
   return {
     id: row.id,
@@ -87,6 +126,20 @@ function rowToContext(row: AttachmentRow): DebateAttachmentContext {
     mimeType: row.mime_type,
     sizeBytes: row.size_bytes,
     contentText: row.content_text,
+    summaryText: row.summary_text,
+    status: row.status,
+    createdAt: row.created_at
+  }
+}
+
+function rowToMetadata(row: AttachmentMetadataRow): DebateAttachmentMetadata {
+  return {
+    id: row.id,
+    sessionId: row.session_id ?? undefined,
+    originalName: row.original_name,
+    mimeType: row.mime_type,
+    sizeBytes: row.size_bytes,
+    contentLength: row.content_length,
     summaryText: row.summary_text,
     status: row.status,
     createdAt: row.created_at

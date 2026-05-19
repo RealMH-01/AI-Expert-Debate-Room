@@ -7,6 +7,16 @@
  */
 
 import { contextBridge, ipcRenderer } from 'electron'
+import type {
+  DebateAttachmentInput,
+  DebateAttachmentMetadata
+} from '../shared/types'
+
+interface IpcResponse<T = unknown> {
+  success: boolean
+  data?: T
+  error?: string
+}
 
 /** 暴露给渲染进程的 API */
 const api = {
@@ -42,12 +52,7 @@ const api = {
   debateStart: (params: {
     roomId: string
     userQuestion: string
-    attachments?: Array<{
-      originalName: string
-      mimeType?: string | null
-      sizeBytes: number
-      contentText: string
-    }>
+    attachments?: DebateAttachmentInput[]
   }) =>
     ipcRenderer.invoke('debate:start', params),
   debateAbort: (params: { roomId: string; sessionId?: string }) =>
@@ -57,7 +62,7 @@ const api = {
   sessionGetByRoom: (roomId: string) => ipcRenderer.invoke('session:get-by-room', roomId),
   messageGetBySession: (sessionId: string) =>
     ipcRenderer.invoke('message:get-by-session', sessionId),
-  attachmentGetBySession: (sessionId: string) =>
+  attachmentGetBySession: (sessionId: string): Promise<IpcResponse<DebateAttachmentMetadata[]>> =>
     ipcRenderer.invoke('attachment:get-by-session', sessionId),
 
   // ===== Debate 事件监听 =====

@@ -13,7 +13,7 @@ import type {
   ValidationResult,
   SettlementResultDisplay,
   DebateAttachmentInput,
-  DebateAttachmentContext
+  DebateAttachmentMetadata
 } from '../../shared/types'
 
 /** 健康检查结果 */
@@ -87,7 +87,7 @@ export interface ElectronAPI {
   sessionGetById: (sessionId: string) => Promise<IpcResponse<Session>>
   sessionGetByRoom: (roomId: string) => Promise<IpcResponse<Session[]>>
   messageGetBySession: (sessionId: string) => Promise<IpcResponse<Message[]>>
-  attachmentGetBySession: (sessionId: string) => Promise<IpcResponse<DebateAttachmentContext[]>>
+  attachmentGetBySession: (sessionId: string) => Promise<IpcResponse<DebateAttachmentMetadata[]>>
 
   // Settlement
   settlementApply: (sessionId: string) => Promise<IpcResponse<Session>>

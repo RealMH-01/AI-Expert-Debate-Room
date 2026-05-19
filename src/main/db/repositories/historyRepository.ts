@@ -7,7 +7,7 @@
  */
 
 import { getDatabase } from '../sqlite'
-import type { DebateAttachmentContext, Session } from '../../../shared/types'
+import type { DebateAttachmentMetadata, Session } from '../../../shared/types'
 import type { AttackRecord, ClaimRecord } from './claimRepository'
 import type { ContextSummaryRecord } from './contextSummaryRepository'
 import type { ModelCallUsageRecord } from './modelCallUsageRepository'
@@ -125,7 +125,7 @@ export interface SessionFullDetail {
   attacks: AttackRecord[]
   context_summaries: ContextSummaryRecord[]
   model_call_usage: ModelCallUsageRecord[]
-  attachments: DebateAttachmentContext[]
+  attachments: DebateAttachmentMetadata[]
   memory_suggestions: MemorySuggestionRecord[]
   project_memory_items: ProjectMemoryItemRecord[]
   user_interventions: UserInterventionRecord[]
@@ -275,7 +275,7 @@ export function getSessionFullDetail(sessionId: string): SessionFullDetail | nul
     )
     .all(sessionId) as ModelCallUsageRecord[]
 
-  const attachments = attachmentRepo.getAttachmentsBySession(sessionId)
+  const attachments = attachmentRepo.getAttachmentMetadataBySession(sessionId)
 
   const memory_suggestions = db
     .prepare(

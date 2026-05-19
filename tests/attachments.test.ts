@@ -8,6 +8,7 @@ import {
 } from '../src/shared/attachments'
 import { formatSharedAttachmentsForPrompt } from '../src/main/prompts/attachmentPrompts'
 import {
+  getAttachmentMetadataBySession,
   getAttachmentsBySession,
   insertAttachmentsForSession
 } from '../src/main/db/repositories/attachmentRepository'
@@ -88,6 +89,25 @@ class AttachmentMemoryDb {
       'SELECT * FROM attachments WHERE session_id = ? ORDER BY created_at ASC'
     ) {
       return this.attachments.filter((row) => row.session_id === args[0])
+    }
+
+    if (
+      sql ===
+      'SELECT id, session_id, original_name, mime_type, size_bytes, length(content_text) AS content_length, summary_text, status, created_at FROM attachments WHERE session_id = ? ORDER BY created_at ASC'
+    ) {
+      return this.attachments
+        .filter((row) => row.session_id === args[0])
+        .map((row) => ({
+          id: row.id,
+          session_id: row.session_id,
+          original_name: row.original_name,
+          mime_type: row.mime_type,
+          size_bytes: row.size_bytes,
+          content_length: row.content_text.length,
+          summary_text: row.summary_text,
+          status: row.status,
+          created_at: row.created_at
+        }))
     }
 
     throw new Error(`Unhandled all SQL: ${sql}`)
@@ -304,6 +324,56 @@ describe('attachment repository and schema', () => {
       status: 'ready'
     })
     expect(getAttachmentsBySession('session-1')).toEqual(inserted)
+  })
+
+  it('keeps full content reads separate from metadata-only reads', () => {
+    activeDb = new AttachmentMemoryDb()
+
+    insertAttachmentsForSession('session-1', [
+      createAttachment('outline.md', '# outline')
+    ])
+
+    const fullAttachments = getAttachmentsBySession('session-1')
+    const metadata = getAttachmentMetadataBySession('session-1')
+
+    expect(fullAttachments[0]).toMatchObject({
+      originalName: 'outline.md',
+      contentText: '# outline'
+    })
+    expect(metadata[0]).toMatchObject({
+      originalName: 'outline.md',
+      contentLength: '# outline'.length,
+      status: 'ready'
+    })
+    expect('contentText' in metadata[0]).toBe(false)
+  })
+
+  it('uses metadata-only attachments for history detail and attachment IPC', () => {
+    const historyRepository = readFileSync(
+      new URL('../src/main/db/repositories/historyRepository.ts', import.meta.url),
+      'utf8'
+    )
+    const attachmentIpc = readFileSync(
+      new URL('../src/main/ipc/attachment.ipc.ts', import.meta.url),
+      'utf8'
+    )
+
+    expect(historyRepository).toMatch(/attachments:\s*DebateAttachmentMetadata\[\]/)
+    expect(historyRepository).toMatch(/getAttachmentMetadataBySession\(sessionId\)/)
+    expect(historyRepository).not.toMatch(/getAttachmentsBySession\(sessionId\)/)
+    expect(attachmentIpc).toMatch(/getAttachmentMetadataBySession\(sessionId\)/)
+    expect(attachmentIpc).not.toMatch(/getAttachmentsBySession\(sessionId\)/)
+  })
+
+  it('renders SessionDetail attachment character counts from contentLength', () => {
+    const sessionDetail = readFileSync(
+      new URL('../src/renderer/components/SessionDetail.tsx', import.meta.url),
+      'utf8'
+    )
+
+    expect(sessionDetail).toMatch(/contentLength:\s*number/)
+    expect(sessionDetail).toContain('{attachment.contentLength}')
+    expect(sessionDetail).not.toContain('attachment.contentText.length')
   })
 
   it('defines additive schema and v8 migration with session cascade', () => {

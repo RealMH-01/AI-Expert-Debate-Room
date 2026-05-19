@@ -180,6 +180,18 @@ export interface DebateAttachmentContext {
   createdAt?: string
 }
 
+export interface DebateAttachmentMetadata {
+  id?: string
+  sessionId?: string
+  originalName: string
+  mimeType?: string | null
+  sizeBytes: number
+  contentLength: number
+  summaryText?: string | null
+  status?: string
+  createdAt?: string
+}
+
 // ===== Message 类型 =====
 
 export interface Message {
