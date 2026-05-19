@@ -1,111 +1,258 @@
 /**
  * TranscriptView - 会议聊天流视图
  *
- * 显示辩论过程中的所有消息。
- * 根据 phase 和 speaker_role 显示不同样式。
- * 自动滚动到最新消息。
+ * 显示辩论过程中的所有消息，并增强长会话下的可读性。
  */
 
-import React, { useEffect, useRef } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import type { Message, DebatePhase } from '../../shared/types'
+import {
+  formatCurrentTranscriptPhaseTitle,
+  formatTranscriptPhaseTitle,
+  getSpeakerColor,
+  getStructuredJsonCounts,
+  shouldCollapseTranscriptMessage
+} from '../utils/transcriptDisplay'
 
 interface TranscriptViewProps {
   messages: Message[]
   currentPhase: DebatePhase | null
 }
 
-/** 阶段显示名称映射 */
-const PHASE_LABELS: Record<DebatePhase, string> = {
-  moderator_opening: '主理人开场',
-  expert_initial: '专家首轮回答',
-  debate_round: '辩论轮',
-  moderator_round_summary: '主理人轮次总结',
-  voting: '匿名互投',
-  settlement_pending: 'HP 结算',
-  moderator_final_summary: '主理人最终总结'
+const SCROLL_BOTTOM_THRESHOLD_PX = 100
+const COLLAPSED_PREVIEW_CHARS = 720
+const COLLAPSED_PREVIEW_LINES = 8
+
+function isExpertMessage(message: Message): boolean {
+  return message.speaker_role !== 'moderator' && message.speaker_role !== 'system'
 }
 
 /** 获取消息气泡的 CSS class */
-function getMessageClass(msg: Message): string {
-  const base = 'transcript-message'
-  if (msg.speaker_role === 'system') {
-    return `${base} message-system`
+function getMessageClass(message: Message): string {
+  const classes = ['transcript-message']
+
+  if (message.speaker_role === 'system') {
+    classes.push('message-system')
+    if (isSystemAlertMessage(message)) {
+      classes.push('message-system-alert')
+    }
+  } else if (message.speaker_role === 'moderator') {
+    classes.push('message-moderator')
+  } else {
+    classes.push('message-expert')
   }
-  if (msg.speaker_role === 'moderator') {
-    return `${base} message-moderator`
-  }
-  return `${base} message-expert`
+
+  return classes.join(' ')
 }
 
-/** 获取阶段分割线文本 */
-function getPhaseDividerText(msg: Message): string {
-  if (msg.phase === 'debate_round') {
-    return `第 ${msg.round_index} 轮辩论`
+function isSystemAlertMessage(message: Message): boolean {
+  const content = message.content.toLowerCase()
+  return (
+    content.includes('error') ||
+    content.includes('failed') ||
+    content.includes('abort') ||
+    content.includes('错误') ||
+    content.includes('失败') ||
+    content.includes('中止') ||
+    content.includes('停止')
+  )
+}
+
+function getSpeakerMarker(message: Message): string {
+  if (message.speaker_role === 'moderator') {
+    return '主'
   }
-  if (msg.phase === 'moderator_round_summary') {
-    return `第 ${msg.round_index} 轮总结`
+
+  if (message.speaker_role === 'system') {
+    return '系'
   }
-  return PHASE_LABELS[msg.phase as DebatePhase] || msg.phase
+
+  return (message.speaker_name || '?').trim().slice(0, 1).toUpperCase() || '?'
+}
+
+function getRoleLabel(message: Message): string {
+  if (message.speaker_role === 'moderator') {
+    return '主理人'
+  }
+
+  if (message.speaker_role === 'system') {
+    return '系统'
+  }
+
+  return '专家'
+}
+
+function getCollapsedContent(content: string): string {
+  const lines = content.split('\n')
+  if (lines.length > COLLAPSED_PREVIEW_LINES) {
+    return `${lines.slice(0, COLLAPSED_PREVIEW_LINES).join('\n').trimEnd()}\n...`
+  }
+
+  return `${content.slice(0, COLLAPSED_PREVIEW_CHARS).trimEnd()}\n...`
+}
+
+function isNearScrollBottom(element: HTMLDivElement): boolean {
+  return element.scrollHeight - element.scrollTop - element.clientHeight <= SCROLL_BOTTOM_THRESHOLD_PX
 }
 
 const TranscriptView: React.FC<TranscriptViewProps> = ({ messages, currentPhase }) => {
   const scrollRef = useRef<HTMLDivElement>(null)
+  const previousMessageCountRef = useRef(0)
+  const [expandedMessageIds, setExpandedMessageIds] = useState<Set<string>>(() => new Set())
+  const [isNearBottom, setIsNearBottom] = useState(true)
+  const [showNewMessageButton, setShowNewMessageButton] = useState(false)
 
-  // 自动滚动到底部
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    window.requestAnimationFrame(() => {
+      const element = scrollRef.current
+      if (!element) {
+        return
+      }
+
+      element.scrollTo({ top: element.scrollHeight, behavior })
+      setIsNearBottom(true)
+      setShowNewMessageButton(false)
+    })
+  }, [])
+
+  const handleScroll = useCallback(() => {
+    const element = scrollRef.current
+    if (!element) {
+      return
     }
-  }, [messages.length])
+
+    const nextIsNearBottom = isNearScrollBottom(element)
+    setIsNearBottom(nextIsNearBottom)
+    if (nextIsNearBottom) {
+      setShowNewMessageButton(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    const previousMessageCount = previousMessageCountRef.current
+    const hasNewMessages = messages.length > previousMessageCount
+    previousMessageCountRef.current = messages.length
+
+    if (messages.length === 0) {
+      setShowNewMessageButton(false)
+      setIsNearBottom(true)
+      return
+    }
+
+    if (!hasNewMessages) {
+      return
+    }
+
+    if (previousMessageCount === 0 || isNearBottom) {
+      scrollToBottom('auto')
+      return
+    }
+
+    setShowNewMessageButton(true)
+  }, [messages.length, isNearBottom, scrollToBottom])
+
+  const toggleExpanded = useCallback((messageId: string) => {
+    setExpandedMessageIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(messageId)) {
+        next.delete(messageId)
+      } else {
+        next.add(messageId)
+      }
+      return next
+    })
+  }, [])
 
   if (messages.length === 0) {
     return (
       <div className="transcript-empty">
-        <p className="placeholder-text">辩论消息将在此显示...</p>
+        <p className="placeholder-text">辩论消息将在这里显示...</p>
       </div>
     )
   }
 
-  // 按阶段分组显示消息
   let lastPhaseKey = ''
 
   return (
-    <div className="transcript-view" ref={scrollRef}>
-      {messages.map((msg) => {
-        const phaseKey = `${msg.phase}-${msg.round_index}`
-        const showDivider = phaseKey !== lastPhaseKey
-        lastPhaseKey = phaseKey
+    <div className="transcript-view-wrap">
+      <div className="transcript-view" ref={scrollRef} onScroll={handleScroll}>
+        {messages.map((message) => {
+          const phaseKey = `${message.phase}-${message.round_index}`
+          const showDivider = phaseKey !== lastPhaseKey
+          lastPhaseKey = phaseKey
 
-        return (
-          <React.Fragment key={msg.id}>
-            {showDivider && (
-              <div className="transcript-phase-divider">
-                <span className="divider-label">{getPhaseDividerText(msg)}</span>
-              </div>
-            )}
-            <div className={getMessageClass(msg)}>
-              <div className="message-header">
-                <span className="message-speaker">
-                  {msg.speaker_role === 'moderator' ? '🎯' : msg.speaker_role === 'system' ? '⚙️' : '💡'} {msg.speaker_name}
-                </span>
-                <span className="message-role-badge">
-                  {msg.speaker_role === 'moderator' ? '主理人' : msg.speaker_role === 'system' ? '系统' : '专家'}
-                </span>
-              </div>
-              <div className="message-content">
-                {renderMarkdownLite(msg.content)}
-              </div>
-            </div>
-          </React.Fragment>
-        )
-      })}
+          const expertMessage = isExpertMessage(message)
+          const messageStyle = expertMessage
+            ? ({ '--speaker-color': getSpeakerColor(message) } as React.CSSProperties)
+            : undefined
+          const shouldCollapse = shouldCollapseTranscriptMessage(message)
+          const isExpanded = expandedMessageIds.has(message.id)
+          const displayContent = shouldCollapse && !isExpanded
+            ? getCollapsedContent(message.content)
+            : message.content
+          const structuredCounts = expertMessage
+            ? getStructuredJsonCounts(message.structured_json)
+            : null
 
-      {/* 当前阶段指示器 */}
-      {currentPhase && (
-        <div className="transcript-phase-indicator">
-          <span className="phase-dot" />
-          当前阶段: {PHASE_LABELS[currentPhase] || currentPhase}
-        </div>
+          return (
+            <React.Fragment key={message.id}>
+              {showDivider && (
+                <div className="transcript-phase-divider">
+                  <span className="divider-label">
+                    {formatTranscriptPhaseTitle(message.phase, message.round_index)}
+                  </span>
+                </div>
+              )}
+              <div className={getMessageClass(message)} style={messageStyle}>
+                <div className="message-header">
+                  <span className="message-speaker-mark" aria-hidden="true">
+                    {getSpeakerMarker(message)}
+                  </span>
+                  <span className="message-speaker">
+                    {message.speaker_name || '未知发言人'}
+                  </span>
+                  <span className="message-role-badge">
+                    {getRoleLabel(message)}
+                  </span>
+                  {structuredCounts && (
+                    <span className="message-structured-counts">
+                      主张 {structuredCounts.claims} · 攻击 {structuredCounts.attacks}
+                    </span>
+                  )}
+                </div>
+                <div className="message-content">
+                  {renderMarkdownLite(displayContent)}
+                </div>
+                {shouldCollapse && (
+                  <button
+                    type="button"
+                    className="message-collapse-toggle"
+                    onClick={() => toggleExpanded(message.id)}
+                  >
+                    {isExpanded ? '收起' : '展开全文'}
+                  </button>
+                )}
+              </div>
+            </React.Fragment>
+          )
+        })}
+
+        {currentPhase && (
+          <div className="transcript-phase-indicator">
+            <span className="phase-dot" />
+            当前阶段: {formatCurrentTranscriptPhaseTitle(currentPhase)}
+          </div>
+        )}
+      </div>
+
+      {showNewMessageButton && (
+        <button
+          type="button"
+          className="transcript-new-message-button"
+          onClick={() => scrollToBottom('smooth')}
+        >
+          有新消息 ↓
+        </button>
       )}
     </div>
   )
@@ -113,7 +260,7 @@ const TranscriptView: React.FC<TranscriptViewProps> = ({ messages, currentPhase 
 
 /**
  * 简化的 Markdown 渲染
- * 只处理标题、加粗、列表
+ * 只处理标题、加粗、列表和分割线。
  */
 function renderMarkdownLite(content: string): React.ReactNode {
   const lines = content.split('\n')
@@ -164,7 +311,6 @@ function renderMarkdownLite(content: string): React.ReactNode {
 
 /** 行内格式化：加粗 */
 function renderInline(text: string): React.ReactNode {
-  // Simple bold handling
   const parts = text.split(/\*\*(.*?)\*\*/)
   if (parts.length === 1) return text
 
