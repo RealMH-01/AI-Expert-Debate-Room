@@ -1,4 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+
+vi.mock('../../src/main/db/sqlite', () => ({
+  getDatabase: vi.fn()
+}))
 
 import {
   maskApiKey,

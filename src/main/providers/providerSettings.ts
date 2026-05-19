@@ -1,5 +1,6 @@
 import type { ProviderId } from '../../shared/types'
 import { getProviderDefinition } from '../../shared/providers/modelRegistry'
+import { getDatabase } from '../db/sqlite'
 
 export interface ProviderConfig {
   providerId: ProviderId | string
@@ -35,8 +36,7 @@ const PROVIDER_SETTINGS_KEY = 'provider_configs'
 const REDACTED = '****REDACTED****'
 
 function getDb() {
-  const sqlite = require('../db/sqlite') as typeof import('../db/sqlite')
-  return sqlite.getDatabase()
+  return getDatabase()
 }
 
 export function maskApiKey(apiKey: string): string {
