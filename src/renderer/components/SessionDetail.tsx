@@ -45,6 +45,7 @@ interface SessionFullDetail {
   attacks: DetailAttack[]
   context_summaries: DetailContextSummary[]
   model_call_usage: DetailModelCallUsage[]
+  attachments: DetailAttachment[]
   memory_suggestions: DetailMemorySuggestion[]
   project_memory_items: DetailProjectMemoryItem[]
   user_interventions: DetailUserIntervention[]
@@ -167,6 +168,18 @@ interface DetailModelCallUsage {
   request_started_at: string
   request_finished_at: string
   created_at: string
+}
+
+interface DetailAttachment {
+  id?: string
+  sessionId?: string
+  originalName: string
+  mimeType?: string | null
+  sizeBytes: number
+  contentText: string
+  summaryText?: string | null
+  status?: string
+  createdAt?: string
 }
 
 interface DetailMemorySuggestion {
@@ -403,12 +416,14 @@ const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId, onBack }) => {
     attacks,
     context_summaries,
     model_call_usage,
+    attachments,
     memory_suggestions,
     project_memory_items,
     user_interventions
   } = detail
   const contextSummaries = context_summaries || []
   const modelCallUsage = model_call_usage || []
+  const sessionAttachments = attachments || []
   const memorySuggestions = memory_suggestions || []
   const projectMemoryItems = project_memory_items || []
   const userInterventions = user_interventions || []
@@ -579,6 +594,32 @@ const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId, onBack }) => {
             <div className="detail-card">
               <h4>用户问题</h4>
               <div className="detail-question">{session.user_question || '无'}</div>
+            </div>
+
+            <div className="detail-card">
+              <h4>本次公共素材列表</h4>
+              {sessionAttachments.length === 0 ? (
+                <p className="placeholder-text">本次会议没有使用公共素材。</p>
+              ) : (
+                <table className="detail-table">
+                  <thead>
+                    <tr>
+                      <th>文件名</th>
+                      <th>大小</th>
+                      <th>字符数</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sessionAttachments.map((attachment) => (
+                      <tr key={attachment.id || attachment.originalName}>
+                        <td>{attachment.originalName}</td>
+                        <td>{formatBytes(attachment.sizeBytes)}</td>
+                        <td>{attachment.contentText.length}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
 
             {/* Moderator */}
@@ -1352,6 +1393,11 @@ function formatGroupCost(group: UsageGroup): string {
 
 function formatInteger(value: number): string {
   return Math.round(value).toLocaleString()
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  return `${(bytes / 1024).toFixed(1)} KB`
 }
 
 function safeNumber(value: number | null | undefined): number {

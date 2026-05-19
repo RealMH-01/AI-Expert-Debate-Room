@@ -22,6 +22,7 @@ import { registerHistoryIpc } from './ipc/history.ipc'
 import { registerExportIpc } from './ipc/export.ipc'
 import { registerProviderIpc } from './ipc/provider.ipc'
 import { registerMemoryIpc } from './ipc/memory.ipc'
+import { registerAttachmentIpc } from './ipc/attachment.ipc'
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -87,6 +88,7 @@ app.whenReady().then(() => {
   registerExportIpc()
   registerProviderIpc()
   registerMemoryIpc()
+  registerAttachmentIpc()
 
   // 创建主窗口
   createWindow()

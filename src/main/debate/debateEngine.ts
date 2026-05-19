@@ -26,9 +26,12 @@ import type {
   Session,
   Message,
   DebatePhase,
-  ValidationResult
+  ValidationResult,
+  DebateAttachmentContext,
+  DebateAttachmentInput
 } from '../../shared/types'
 import { DEFAULT_RULES_CONFIG } from '../../shared/types'
+import { validateDebateAttachments } from '../../shared/attachments'
 import type { DebateModelProvider, TranscriptEntry, DebateGenerateInput, DebateGenerateOutput, VoteGenerateOutput } from '../providers/base'
 import { getProviderForAgent, validateProvidersReady } from '../providers/providerFactory'
 import * as sessionRepo from '../db/repositories/sessionRepository'
@@ -43,6 +46,7 @@ import * as historyRepo from '../db/repositories/historyRepository'
 import * as claimRepo from '../db/repositories/claimRepository'
 import * as contextSummaryRepo from '../db/repositories/contextSummaryRepository'
 import * as usageRepo from '../db/repositories/modelCallUsageRepository'
+import * as attachmentRepo from '../db/repositories/attachmentRepository'
 import { buildSessionReview } from '../review/sessionReviewBuilder'
 import { generateSessionMarkdown } from '../export/markdownExporter'
 import { getDatabase } from '../db/sqlite'
@@ -99,6 +103,7 @@ interface PendingSettlementInfo {
   signal: AbortSignal
   settlementRecordId: string
   settlementResult: SettlementResult
+  attachments: DebateAttachmentContext[]
 }
 
 const pendingSettlements = new Map<string, PendingSettlementInfo>()
@@ -173,12 +178,19 @@ export function validateRoomCanStart(roomId: string): ValidationResult {
 export async function startDebate(
   roomId: string,
   userQuestion: string,
-  callbacks: DebateEngineCallbacks
+  callbacks: DebateEngineCallbacks,
+  attachments: DebateAttachmentInput[] = []
 ): Promise<Session | null> {
   // 再次校验
   const validation = validateRoomCanStart(roomId)
   if (!validation.valid) {
     callbacks.onError(validation.errors.join('; '))
+    return null
+  }
+
+  const attachmentValidation = validateDebateAttachments(attachments)
+  if (!attachmentValidation.valid) {
+    callbacks.onError(attachmentValidation.errors.join('; '))
     return null
   }
 
@@ -216,6 +228,11 @@ export async function startDebate(
   const title = `${room.name} - ${userQuestion.slice(0, 30)}${userQuestion.length > 30 ? '...' : ''}`
   let session = sessionRepo.createSession(roomId, title, userQuestion)
   const abortController = new AbortController()
+  const attachmentContext = attachmentRepo.insertAttachmentsForSession(
+    session.id,
+    attachmentValidation.attachments
+  )
+  const promptAttachments = attachmentContext.length > 0 ? attachmentContext : undefined
 
   // Save participant snapshots at session start (moderator + experts)
   participantRepo.insertParticipants(session.id, [moderator, ...experts])
@@ -247,7 +264,8 @@ export async function startDebate(
       room.name,
       transcript,
       callbacks,
-      abortController.signal
+      abortController.signal,
+      promptAttachments
     )
 
     // === Step 2: 专家首轮独立回答 ===
@@ -260,7 +278,8 @@ export async function startDebate(
       room.name,
       transcript,
       callbacks,
-      abortController.signal
+      abortController.signal,
+      promptAttachments
     )
 
     // === Step 3: 多轮辩论 ===
@@ -276,7 +295,8 @@ export async function startDebate(
         round,
         transcript,
         callbacks,
-        abortController.signal
+        abortController.signal,
+        promptAttachments
       )
     }
 
@@ -326,7 +346,8 @@ export async function startDebate(
         callbacks,
         signal: abortController.signal,
         settlementRecordId: settlementRecord.id,
-        settlementResult: votingResult
+        settlementResult: votingResult,
+        attachments: attachmentContext
       })
 
       // 此处不 finish session，等待用户操作
@@ -346,7 +367,8 @@ export async function startDebate(
       minDebateRounds,
       transcript,
       callbacks,
-      abortController.signal
+      abortController.signal,
+      promptAttachments
     )
 
     // === Step 7: 标记完成 ===
@@ -506,7 +528,8 @@ async function runModeratorOpening(
   roomName: string,
   transcript: TranscriptEntry[],
   callbacks: DebateEngineCallbacks,
-  signal: AbortSignal
+  signal: AbortSignal,
+  attachments?: DebateAttachmentContext[]
 ): Promise<Session> {
   throwIfAborted(signal)
   const phase: DebatePhase = 'moderator_opening'
@@ -523,7 +546,8 @@ async function runModeratorOpening(
     otherExperts: experts,
     rules,
     roomName,
-    signal
+    signal,
+    attachments
   }
 
   const output = await trackDebateCall(
@@ -568,7 +592,8 @@ async function runInitialAnswers(
   roomName: string,
   transcript: TranscriptEntry[],
   callbacks: DebateEngineCallbacks,
-  signal: AbortSignal
+  signal: AbortSignal,
+  attachments?: DebateAttachmentContext[]
 ): Promise<Session> {
   throwIfAborted(signal)
   const phase: DebatePhase = 'expert_initial'
@@ -593,7 +618,8 @@ async function runInitialAnswers(
       otherExperts,
       rules,
       roomName,
-      signal
+      signal,
+      attachments
     }
 
     // 使用该专家自身配置的 Provider
@@ -668,7 +694,8 @@ async function runDebateRound(
   roundIndex: number,
   transcript: TranscriptEntry[],
   callbacks: DebateEngineCallbacks,
-  signal: AbortSignal
+  signal: AbortSignal,
+  attachments?: DebateAttachmentContext[]
 ): Promise<Session> {
   throwIfAborted(signal)
   const debatePhase: DebatePhase = 'debate_round'
@@ -690,7 +717,8 @@ async function runDebateRound(
       otherExperts,
       rules,
       roomName,
-      signal
+      signal,
+      attachments
     }
 
     // 使用该专家自身配置的 Provider
@@ -766,7 +794,8 @@ async function runDebateRound(
     otherExperts: experts,
     rules,
     roomName,
-    signal
+    signal,
+    attachments
   }
 
   const summaryOutput = await trackDebateCall(
@@ -815,7 +844,8 @@ async function runFinalSummary(
   totalRounds: number,
   transcript: TranscriptEntry[],
   callbacks: DebateEngineCallbacks,
-  signal: AbortSignal
+  signal: AbortSignal,
+  attachments?: DebateAttachmentContext[]
 ): Promise<Session> {
   throwIfAborted(signal)
   const phase: DebatePhase = 'moderator_final_summary'
@@ -832,7 +862,8 @@ async function runFinalSummary(
     otherExperts: experts,
     rules,
     roomName,
-    signal
+    signal,
+    attachments
   }
 
   const output = await trackDebateCall(
@@ -1298,7 +1329,8 @@ async function applySettlementWithContext(
     totalRounds,
     transcript,
     callbacks,
-    signal
+    signal,
+    attachments
   } = info
 
   try {
@@ -1394,7 +1426,8 @@ async function applySettlementWithContext(
       totalRounds,
       transcript,
       callbacks,
-      signal
+      signal,
+      attachments
     )
 
     callbacks.onSessionFinished(finalSession)
@@ -1552,7 +1585,8 @@ async function vetoSettlementWithContext(
     totalRounds,
     transcript,
     callbacks,
-    signal
+    signal,
+    attachments
   } = info
 
   try {
@@ -1602,7 +1636,8 @@ async function vetoSettlementWithContext(
       totalRounds,
       transcript,
       callbacks,
-      signal
+      signal,
+      attachments
     )
 
     callbacks.onSessionFinished(finalSession)

@@ -13,7 +13,8 @@ import type {
   ValidationResult,
   DebatePhase,
   SettlementResultDisplay,
-  Agent
+  Agent,
+  DebateAttachmentInput
 } from '../../shared/types'
 import NewSessionPanel from './NewSessionPanel'
 import TranscriptView from './TranscriptView'
@@ -143,7 +144,7 @@ const DebatePanel: React.FC<DebatePanelProps> = ({ roomId }) => {
 
   // 启动辩论
   const handleStartDebate = useCallback(
-    async (question: string) => {
+    async (question: string, attachments?: DebateAttachmentInput[]) => {
       setError(null)
       setIsAborting(false)
       setMessages([])
@@ -151,7 +152,7 @@ const DebatePanel: React.FC<DebatePanelProps> = ({ roomId }) => {
       setCurrentPhase(null)
       setSettlement(null)
 
-      const res = await window.api.debateStart({ roomId, userQuestion: question })
+      const res = await window.api.debateStart({ roomId, userQuestion: question, attachments })
       if (res.success) {
         setIsRunning(true)
       } else {

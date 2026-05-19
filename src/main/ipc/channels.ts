@@ -56,6 +56,7 @@ export const IPC_CHANNELS = {
   SESSION_GET_BY_ROOM: 'session:get-by-room',
   /** 获取会议的所有消息 */
   MESSAGE_GET_BY_SESSION: 'message:get-by-session',
+  ATTACHMENT_GET_BY_SESSION: 'attachment:get-by-session',
 
   // ===== Settlement 相关 =====
   /** 应用 HP 结算 */

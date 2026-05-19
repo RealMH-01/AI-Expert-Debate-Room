@@ -7,7 +7,7 @@
  */
 
 import { getDatabase } from '../sqlite'
-import type { Session } from '../../../shared/types'
+import type { DebateAttachmentContext, Session } from '../../../shared/types'
 import type { AttackRecord, ClaimRecord } from './claimRepository'
 import type { ContextSummaryRecord } from './contextSummaryRepository'
 import type { ModelCallUsageRecord } from './modelCallUsageRepository'
@@ -16,6 +16,7 @@ import type {
   ProjectMemoryItemRecord,
   UserInterventionRecord
 } from '../../memory/projectMemory'
+import * as attachmentRepo from './attachmentRepository'
 
 export interface HistorySessionItem {
   id: string
@@ -124,6 +125,7 @@ export interface SessionFullDetail {
   attacks: AttackRecord[]
   context_summaries: ContextSummaryRecord[]
   model_call_usage: ModelCallUsageRecord[]
+  attachments: DebateAttachmentContext[]
   memory_suggestions: MemorySuggestionRecord[]
   project_memory_items: ProjectMemoryItemRecord[]
   user_interventions: UserInterventionRecord[]
@@ -273,6 +275,8 @@ export function getSessionFullDetail(sessionId: string): SessionFullDetail | nul
     )
     .all(sessionId) as ModelCallUsageRecord[]
 
+  const attachments = attachmentRepo.getAttachmentsBySession(sessionId)
+
   const memory_suggestions = db
     .prepare(
       `SELECT * FROM memory_suggestions
@@ -313,6 +317,7 @@ export function getSessionFullDetail(sessionId: string): SessionFullDetail | nul
     attacks,
     context_summaries,
     model_call_usage,
+    attachments,
     memory_suggestions,
     project_memory_items,
     user_interventions,
@@ -341,6 +346,7 @@ export function deleteSession(sessionId: string): boolean {
     db.prepare('DELETE FROM agent_snapshots WHERE session_id = ?').run(sessionId)
     db.prepare('DELETE FROM settlements WHERE session_id = ?').run(sessionId)
     db.prepare('DELETE FROM votes WHERE session_id = ?').run(sessionId)
+    db.prepare('DELETE FROM attachments WHERE session_id = ?').run(sessionId)
     db.prepare('DELETE FROM messages WHERE session_id = ?').run(sessionId)
     db.prepare('DELETE FROM session_participants WHERE session_id = ?').run(sessionId)
     db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId)

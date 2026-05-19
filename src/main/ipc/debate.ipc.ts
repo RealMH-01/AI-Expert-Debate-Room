@@ -12,7 +12,8 @@ import { IPC_CHANNELS } from './channels'
 import { validateRoomCanStart, startDebate, isDebateRunning, abortDebate } from '../debate/debateEngine'
 import * as sessionRepo from '../db/repositories/sessionRepository'
 import * as messageRepo from '../db/repositories/messageRepository'
-import type { Session, Message, DebatePhase } from '../../shared/types'
+import { validateDebateAttachments } from '../../shared/attachments'
+import type { Session, Message, DebatePhase, DebateStartParams } from '../../shared/types'
 import type { SettlementResult } from '../voting/voteTypes'
 
 /** 辩论过程事件通道名 */
@@ -56,7 +57,7 @@ export function registerDebateIpc(): void {
   // 启动辩论（异步，通过事件推送进展）
   ipcMain.handle(
     IPC_CHANNELS.DEBATE_START,
-    async (_event, params: { roomId: string; userQuestion: string }) => {
+    async (_event, params: DebateStartParams) => {
       try {
         const { roomId, userQuestion } = params
 
@@ -70,6 +71,11 @@ export function registerDebateIpc(): void {
 
         // 异步启动辩论，不等待完成
         // 通过事件推送每一步进展
+        const attachmentValidation = validateDebateAttachments(params.attachments)
+        if (!attachmentValidation.valid) {
+          return { success: false, error: attachmentValidation.errors.join('; ') }
+        }
+
         const callbacks = {
           onMessage: (message: Message) => {
             sendToRenderer(DEBATE_EVENTS.NEW_MESSAGE, message)
@@ -95,7 +101,12 @@ export function registerDebateIpc(): void {
         }
 
         // 开始辩论（fire-and-forget pattern）
-        startDebate(roomId, userQuestion.trim(), callbacks).catch((err) => {
+        startDebate(
+          roomId,
+          userQuestion.trim(),
+          callbacks,
+          attachmentValidation.attachments
+        ).catch((err) => {
           console.error('[DebateIPC] startDebate unexpected error:', err)
           sendToRenderer(DEBATE_EVENTS.ERROR, `辩论引擎异常: ${err.message}`)
         })

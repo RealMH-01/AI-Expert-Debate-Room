@@ -2026,3 +2026,81 @@ html, body, #root {
 .btn-secondary:hover {
   background: var(--color-bg-panel);
 }
+
+.attachment-dropzone {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px dashed var(--color-border-light);
+  border-radius: 6px;
+  background-color: rgba(74, 158, 255, 0.04);
+}
+
+.attachment-dropzone.dragging {
+  border-color: var(--color-primary);
+  background-color: rgba(74, 158, 255, 0.12);
+}
+
+.attachment-file-input {
+  display: none;
+}
+
+.attachment-drop-hint {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.attachment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.attachment-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background-color: var(--color-bg-input);
+}
+
+.attachment-card.status-ready {
+  border-color: rgba(76, 175, 80, 0.35);
+}
+
+.attachment-card.status-unsupported,
+.attachment-card.status-too_large,
+.attachment-card.status-read_error {
+  border-color: rgba(244, 67, 54, 0.45);
+}
+
+.attachment-card-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.attachment-name {
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.attachment-meta,
+.attachment-message {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  margin-top: 3px;
+}
+
+.attachment-card.status-unsupported .attachment-message,
+.attachment-card.status-too_large .attachment-message,
+.attachment-card.status-read_error .attachment-message {
+  color: var(--color-error);
+}

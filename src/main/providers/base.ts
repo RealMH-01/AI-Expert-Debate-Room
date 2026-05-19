@@ -10,7 +10,7 @@
  * - Output 统一包含 content + 可选 structuredJson + usage
  */
 
-import type { Agent, DebatePhase, RulesConfig } from '../../shared/types'
+import type { Agent, DebateAttachmentContext, DebatePhase, RulesConfig } from '../../shared/types'
 
 /**
  * 投票生成输入
@@ -64,6 +64,8 @@ export interface DebateGenerateInput {
   rules: RulesConfig
   /** 会议室名称 */
   roomName: string
+  /** 本次会议所有参与者共享的公共素材 */
+  attachments?: DebateAttachmentContext[]
   signal?: AbortSignal
 }
 

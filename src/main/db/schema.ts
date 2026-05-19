@@ -77,6 +77,22 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 
 -- ============================
+-- 公共素材附件（Session 级）
+-- ============================
+CREATE TABLE IF NOT EXISTS attachments (
+  id              TEXT PRIMARY KEY,
+  session_id      TEXT,
+  original_name   TEXT NOT NULL,
+  mime_type       TEXT,
+  size_bytes      INTEGER NOT NULL DEFAULT 0,
+  content_text    TEXT NOT NULL,
+  summary_text    TEXT,
+  status          TEXT NOT NULL DEFAULT 'ready',
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+);
+
+-- ============================
 -- 辩论消息
 -- speaker_id 允许为空，支持 system 类型消息（无真实 agent_id）
 -- ============================
@@ -290,6 +306,7 @@ CREATE TABLE IF NOT EXISTS provider_models (
 -- ============================
 CREATE INDEX IF NOT EXISTS idx_agents_room_id ON agents(room_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_room_id ON sessions(room_id);
+CREATE INDEX IF NOT EXISTS idx_attachments_session_id ON attachments(session_id);
 CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);
 CREATE INDEX IF NOT EXISTS idx_messages_session_round ON messages(session_id, round_index);
 CREATE INDEX IF NOT EXISTS idx_votes_session_round ON votes(session_id, round_index);

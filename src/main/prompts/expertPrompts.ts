@@ -15,6 +15,7 @@
 
 import type { DebateGenerateInput } from '../providers/base'
 import type { ChatMessage } from './moderatorPrompts'
+import { formatSharedAttachmentsForPrompt } from './attachmentPrompts'
 
 const EXPERT_INITIAL_OUTPUT_CONTRACT = `
 
@@ -55,6 +56,7 @@ claims 和 attacks 只用于复盘展示，不影响投票、HP、议事权或�
  */
 export function buildExpertInitialPrompt(input: DebateGenerateInput): ChatMessage[] {
   const { agent, userQuestion, otherExperts } = input
+  const sharedAttachments = formatSharedAttachmentsForPrompt(input.attachments)
   const otherNames = otherExperts.map((e) => `${e.name}（${e.domain || '通用'}）`).join('、')
 
   const system = `你是一位辩论专家，名字是"${agent.name}"。
@@ -87,7 +89,7 @@ ${agent.memory ? `你的背景记忆：${agent.memory}` : ''}
 
   return [
     { role: 'system', content: system },
-    { role: 'user', content: `${user}${EXPERT_INITIAL_OUTPUT_CONTRACT}` }
+    { role: 'user', content: `${user}${sharedAttachments}${EXPERT_INITIAL_OUTPUT_CONTRACT}` }
   ]
 }
 
@@ -96,6 +98,7 @@ ${agent.memory ? `你的背景记忆：${agent.memory}` : ''}
  */
 export function buildExpertDebatePrompt(input: DebateGenerateInput): ChatMessage[] {
   const { agent, userQuestion, roundIndex, visibleTranscript, otherExperts } = input
+  const sharedAttachments = formatSharedAttachmentsForPrompt(input.attachments)
 
   // 提取其他专家最近的发言（限制长度）
   const otherExpertMessages = visibleTranscript.filter(
@@ -152,6 +155,6 @@ ${attacksOnMe ? `对你的攻击：\n${attacksOnMe}` : ''}
 
   return [
     { role: 'system', content: system },
-    { role: 'user', content: `${user}${EXPERT_DEBATE_OUTPUT_CONTRACT}` }
+    { role: 'user', content: `${user}${sharedAttachments}${EXPERT_DEBATE_OUTPUT_CONTRACT}` }
   ]
 }

@@ -39,7 +39,16 @@ const api = {
 
   // ===== Debate / Session =====
   debateValidate: (roomId: string) => ipcRenderer.invoke('debate:validate', roomId),
-  debateStart: (params: { roomId: string; userQuestion: string }) =>
+  debateStart: (params: {
+    roomId: string
+    userQuestion: string
+    attachments?: Array<{
+      originalName: string
+      mimeType?: string | null
+      sizeBytes: number
+      contentText: string
+    }>
+  }) =>
     ipcRenderer.invoke('debate:start', params),
   debateAbort: (params: { roomId: string; sessionId?: string }) =>
     ipcRenderer.invoke('debate:abort', params),
@@ -48,6 +57,8 @@ const api = {
   sessionGetByRoom: (roomId: string) => ipcRenderer.invoke('session:get-by-room', roomId),
   messageGetBySession: (sessionId: string) =>
     ipcRenderer.invoke('message:get-by-session', sessionId),
+  attachmentGetBySession: (sessionId: string) =>
+    ipcRenderer.invoke('attachment:get-by-session', sessionId),
 
   // ===== Debate 事件监听 =====
   onDebateMessage: (callback: (message: unknown) => void) => {

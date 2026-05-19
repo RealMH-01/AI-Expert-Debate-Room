@@ -4,7 +4,17 @@
  * 声明 window.api 的类型，使渲染进程可以安全调用 IPC API
  */
 
-import type { Room, Agent, RulesConfig, Session, Message, ValidationResult, SettlementResultDisplay } from '../../shared/types'
+import type {
+  Room,
+  Agent,
+  RulesConfig,
+  Session,
+  Message,
+  ValidationResult,
+  SettlementResultDisplay,
+  DebateAttachmentInput,
+  DebateAttachmentContext
+} from '../../shared/types'
 
 /** 健康检查结果 */
 export interface HealthCheckResult {
@@ -71,12 +81,13 @@ export interface ElectronAPI {
 
   // Debate / Session
   debateValidate: (roomId: string) => Promise<IpcResponse<ValidationResult>>
-  debateStart: (params: { roomId: string; userQuestion: string }) => Promise<IpcResponse<{ started: boolean; roomId: string }>>
+  debateStart: (params: { roomId: string; userQuestion: string; attachments?: DebateAttachmentInput[] }) => Promise<IpcResponse<{ started: boolean; roomId: string }>>
   debateAbort: (params: { roomId: string; sessionId?: string }) => Promise<IpcResponse<{ aborted: boolean; roomId: string; sessionId?: string }>>
   debateIsRunning: (roomId: string) => Promise<IpcResponse<boolean>>
   sessionGetById: (sessionId: string) => Promise<IpcResponse<Session>>
   sessionGetByRoom: (roomId: string) => Promise<IpcResponse<Session[]>>
   messageGetBySession: (sessionId: string) => Promise<IpcResponse<Message[]>>
+  attachmentGetBySession: (sessionId: string) => Promise<IpcResponse<DebateAttachmentContext[]>>
 
   // Settlement
   settlementApply: (sessionId: string) => Promise<IpcResponse<Session>>

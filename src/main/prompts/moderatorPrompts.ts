@@ -11,6 +11,7 @@
  */
 
 import type { DebateGenerateInput } from '../providers/base'
+import { formatSharedAttachmentsForPrompt } from './attachmentPrompts'
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
@@ -22,6 +23,7 @@ export interface ChatMessage {
  */
 export function buildModeratorOpeningPrompt(input: DebateGenerateInput): ChatMessage[] {
   const { agent, userQuestion, otherExperts, rules, roomName } = input
+  const sharedAttachments = formatSharedAttachmentsForPrompt(input.attachments)
   const expertNames = otherExperts.map((e) => `${e.name}（${e.domain || '通用'}）`).join('、')
 
   const system = `你是一场 AI 专家辩论会议的主理人，名字是"${agent.name}"。
@@ -52,7 +54,7 @@ ${agent.persona ? `你的主持风格：${agent.persona}` : ''}
 
   return [
     { role: 'system', content: system },
-    { role: 'user', content: user }
+    { role: 'user', content: `${user}${sharedAttachments}` }
   ]
 }
 
@@ -61,6 +63,7 @@ ${agent.persona ? `你的主持风格：${agent.persona}` : ''}
  */
 export function buildModeratorRoundSummaryPrompt(input: DebateGenerateInput): ChatMessage[] {
   const { agent, roundIndex, visibleTranscript, otherExperts, rules, roomName, userQuestion } = input
+  const sharedAttachments = formatSharedAttachmentsForPrompt(input.attachments)
 
   // 提取本轮辩论内容
   const roundMessages = visibleTranscript.filter(
@@ -98,7 +101,7 @@ ${transcriptText || '（无发言记录）'}
 
   return [
     { role: 'system', content: system },
-    { role: 'user', content: user }
+    { role: 'user', content: `${user}${sharedAttachments}` }
   ]
 }
 
@@ -107,6 +110,7 @@ ${transcriptText || '（无发言记录）'}
  */
 export function buildModeratorFinalSummaryPrompt(input: DebateGenerateInput): ChatMessage[] {
   const { agent, userQuestion, otherExperts, visibleTranscript, rules, roomName } = input
+  const sharedAttachments = formatSharedAttachmentsForPrompt(input.attachments)
 
   // 构建完整辩论摘要（限制长度避免超 token）
   const expertSummaries = otherExperts.map((e) => {
@@ -150,6 +154,6 @@ ${expertSummaries}
 
   return [
     { role: 'system', content: system },
-    { role: 'user', content: user }
+    { role: 'user', content: `${user}${sharedAttachments}` }
   ]
 }

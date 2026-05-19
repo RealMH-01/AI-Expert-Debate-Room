@@ -159,6 +159,27 @@ export interface Session {
   updated_at: string
 }
 
+// ===== Attachment 类型 =====
+
+export interface DebateAttachmentInput {
+  originalName: string
+  mimeType?: string | null
+  sizeBytes: number
+  contentText: string
+}
+
+export interface DebateAttachmentContext {
+  id?: string
+  sessionId?: string
+  originalName: string
+  mimeType?: string | null
+  sizeBytes: number
+  contentText: string
+  summaryText?: string | null
+  status?: string
+  createdAt?: string
+}
+
 // ===== Message 类型 =====
 
 export interface Message {
@@ -179,6 +200,7 @@ export interface Message {
 export interface DebateStartParams {
   roomId: string
   userQuestion: string
+  attachments?: DebateAttachmentInput[]
 }
 
 export interface DebateSessionState {

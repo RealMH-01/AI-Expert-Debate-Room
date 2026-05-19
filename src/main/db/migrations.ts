@@ -276,6 +276,26 @@ ALTER TABLE sessions_new RENAME TO sessions;
 
 CREATE INDEX IF NOT EXISTS idx_sessions_room_id ON sessions(room_id);
 `
+  },
+  {
+    version: 8,
+    name: 'add session attachments table',
+    sql: `
+CREATE TABLE IF NOT EXISTS attachments (
+  id              TEXT PRIMARY KEY,
+  session_id      TEXT,
+  original_name   TEXT NOT NULL,
+  mime_type       TEXT,
+  size_bytes      INTEGER NOT NULL DEFAULT 0,
+  content_text    TEXT NOT NULL,
+  summary_text    TEXT,
+  status          TEXT NOT NULL DEFAULT 'ready',
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_attachments_session_id ON attachments(session_id);
+`
   }
 ]
 
