@@ -644,9 +644,39 @@ html, body, #root {
   /* 继承 config-section 样式 */
 }
 
+.new-session-question {
+  min-height: 160px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.session-input-stats {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin-top: 6px;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
 .session-validation-errors,
 .session-validation-warnings {
   margin-bottom: 12px;
+}
+
+.session-start-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.session-start-error {
+  color: var(--color-error);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
 }
 
 .session-running-hint {
@@ -2027,9 +2057,29 @@ html, body, #root {
   background: var(--color-bg-panel);
 }
 
+.attachment-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.attachment-label-row .form-label {
+  margin-bottom: 0;
+}
+
+.attachment-limit-hint {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+
 .attachment-dropzone {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   padding: 12px;
   border: 1px dashed var(--color-border-light);

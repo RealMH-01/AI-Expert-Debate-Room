@@ -152,11 +152,18 @@ const DebatePanel: React.FC<DebatePanelProps> = ({ roomId }) => {
       setCurrentPhase(null)
       setSettlement(null)
 
-      const res = await window.api.debateStart({ roomId, userQuestion: question, attachments })
-      if (res.success) {
-        setIsRunning(true)
-      } else {
+      try {
+        const res = await window.api.debateStart({ roomId, userQuestion: question, attachments })
+        if (res.success) {
+          setIsRunning(true)
+          return true
+        }
+
         setError(res.error || '启动失败')
+        return false
+      } catch (error) {
+        setError(error instanceof Error ? error.message : '启动失败')
+        return false
       }
     },
     [roomId]

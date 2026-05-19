@@ -2,10 +2,10 @@
  * NewSessionPanel - 新会议发起面板
  *
  * 用户输入问题并启动模拟辩论。
- * 包含校验提示和启动按钮。
+ * 包含校验提示、公共素材和启动按钮。
  */
 
-import React, { useState, useCallback, useRef } from 'react'
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import type { DebateAttachmentInput, ValidationResult } from '../../shared/types'
 import {
   MAX_ATTACHMENT_SIZE_BYTES,
@@ -14,12 +14,20 @@ import {
   isSupportedAttachmentName,
   validateDebateAttachments
 } from '../../shared/attachments'
+import {
+  estimateRoughTokens,
+  finalizeNewSessionDraft,
+  getReadyDebateAttachments,
+  getSessionAttachmentStats,
+  readNewSessionDraft,
+  writeNewSessionDraft
+} from '../utils/newSessionInput'
 
 interface NewSessionPanelProps {
   roomId: string
   isRunning: boolean
   isAborting?: boolean
-  onStartDebate: (question: string, attachments?: DebateAttachmentInput[]) => void
+  onStartDebate: (question: string, attachments?: DebateAttachmentInput[]) => Promise<boolean> | boolean
   onAbortDebate?: () => void
   validation: ValidationResult | null
 }
@@ -45,24 +53,68 @@ const NewSessionPanel: React.FC<NewSessionPanelProps> = ({
   onAbortDebate,
   validation
 }) => {
-  const [question, setQuestion] = useState('')
+  const [question, setQuestion] = useState(() => readNewSessionDraft(roomId))
   const [attachments, setAttachments] = useState<LocalAttachmentCard[]>([])
   const [isDragging, setIsDragging] = useState(false)
+  const [isStarting, setIsStarting] = useState(false)
+  const [startError, setStartError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const skipNextDraftSaveRef = useRef(false)
 
-  const handleStart = useCallback(() => {
-    if (question.trim() && !isRunning) {
-      const readyAttachments = attachments
-        .filter((attachment) => attachment.status === 'ready')
-        .map((attachment) => ({
-          originalName: attachment.originalName,
-          mimeType: attachment.mimeType ?? null,
-          sizeBytes: attachment.sizeBytes,
-          contentText: attachment.contentText
-        }))
-      onStartDebate(question.trim(), readyAttachments.length > 0 ? readyAttachments : undefined)
+  useEffect(() => {
+    skipNextDraftSaveRef.current = true
+    setQuestion(readNewSessionDraft(roomId))
+    setAttachments([])
+    setStartError(null)
+    setIsDragging(false)
+    setIsStarting(false)
+  }, [roomId])
+
+  useEffect(() => {
+    if (skipNextDraftSaveRef.current) {
+      skipNextDraftSaveRef.current = false
+      return
     }
-  }, [attachments, question, isRunning, onStartDebate])
+
+    writeNewSessionDraft(roomId, question)
+  }, [roomId, question])
+
+  const attachmentStats = useMemo(() => getSessionAttachmentStats(attachments), [attachments])
+  const questionCharCount = question.length
+  const roughTokenCount = estimateRoughTokens(question)
+  const inputDisabled = isRunning || isStarting
+  const canStart =
+    validation?.valid === true &&
+    question.trim().length > 0 &&
+    !isRunning &&
+    !isAborting
+
+  const handleStart = useCallback(async () => {
+    if (!canStart || isStarting) return
+
+    setIsStarting(true)
+    setStartError(null)
+
+    const readyAttachments = getReadyDebateAttachments(attachments)
+    try {
+      const didStart = await onStartDebate(
+        question.trim(),
+        readyAttachments.length > 0 ? readyAttachments : undefined
+      )
+      finalizeNewSessionDraft(roomId, didStart)
+
+      if (didStart) {
+        setQuestion('')
+        setAttachments([])
+      } else {
+        setStartError('启动失败，请检查错误提示后重试。')
+      }
+    } catch (error) {
+      setStartError(error instanceof Error ? error.message : '启动失败，请稍后重试。')
+    } finally {
+      setIsStarting(false)
+    }
+  }, [attachments, canStart, isStarting, onStartDebate, question, roomId])
 
   const addFiles = useCallback(async (fileList: FileList | File[]) => {
     const files = Array.from(fileList)
@@ -145,11 +197,11 @@ const NewSessionPanel: React.FC<NewSessionPanelProps> = ({
     (event: React.DragEvent<HTMLDivElement>) => {
       event.preventDefault()
       setIsDragging(false)
-      if (!isRunning && event.dataTransfer.files.length > 0) {
+      if (!inputDisabled && event.dataTransfer.files.length > 0) {
         void addFiles(event.dataTransfer.files)
       }
     },
-    [addFiles, isRunning]
+    [addFiles, inputDisabled]
   )
 
   const removeAttachment = useCallback((id: string) => {
@@ -157,21 +209,19 @@ const NewSessionPanel: React.FC<NewSessionPanelProps> = ({
   }, [])
 
   const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter' && e.ctrlKey) {
-        handleStart()
+    (event: React.KeyboardEvent) => {
+      if (event.key === 'Enter' && event.ctrlKey && canStart) {
+        event.preventDefault()
+        void handleStart()
       }
     },
-    [handleStart]
+    [canStart, handleStart]
   )
-
-  const canStart = validation?.valid && question.trim().length > 0 && !isRunning
 
   return (
     <div className="config-section new-session-panel">
       <div className="section-title">开始新讨论</div>
 
-      {/* 校验状态提示 */}
       {validation && !validation.valid && (
         <div className="session-validation-errors">
           {validation.errors.map((err, i) => (
@@ -191,33 +241,54 @@ const NewSessionPanel: React.FC<NewSessionPanelProps> = ({
         </div>
       )}
 
-      {/* 问题输入 */}
       <div className="form-group">
         <label className="form-label">讨论问题</label>
         <textarea
-          className="form-textarea"
-          placeholder="请输入要讨论的问题，例如：如何设计一个高可用的分布式系统？"
+          className="form-textarea new-session-question"
+          placeholder="请输入要讨论的问题，例如：请根据我上传的人物设定和第三章草稿，分析女主在这一章里的动机是否成立，节奏是否拖沓，以及哪些桥段需要重写。"
           value={question}
-          onChange={(e) => setQuestion(e.target.value)}
+          onChange={(event) => setQuestion(event.target.value)}
           onKeyDown={handleKeyDown}
-          rows={3}
-          disabled={isRunning}
+          rows={8}
+          disabled={inputDisabled}
         />
-        <span className="form-hint">Ctrl+Enter 快速启动</span>
+        <div className="session-input-stats">
+          <span>问题：{questionCharCount} 字符 · 约 {roughTokenCount} tokens</span>
+          <span>
+            公共素材：{attachmentStats.readyCount} 个文件 · {formatBytes(attachmentStats.readyTextBytes)} 文本
+            {attachmentStats.rejectedCount > 0 ? ` · ${attachmentStats.rejectedCount} 个已拒绝` : ''}
+          </span>
+        </div>
+        <span className="form-hint">Ctrl+Enter 快速启动，Enter 正常换行</span>
       </div>
 
-      {/* 公共素材 */}
       <div className="form-group">
-        <label className="form-label">公共素材：所有专家和主理人都能看到</label>
+        <div className="attachment-label-row">
+          <label className="form-label">公共素材：所有专家和主持人都能看到</label>
+          {attachments.length > 0 && (
+            <button
+              type="button"
+              className="btn btn-small btn-ghost"
+              onClick={() => setAttachments([])}
+              disabled={inputDisabled}
+            >
+              清空素材
+            </button>
+          )}
+        </div>
+        <div className="attachment-limit-hint">
+          支持 .txt/.md/.markdown/.json/.csv · 单文件最大 200KB · 总文本最大 300KB ·
+          已就绪 {attachmentStats.readyCount} 个，已拒绝 {attachmentStats.rejectedCount} 个
+        </div>
         <div
           className={`attachment-dropzone ${isDragging ? 'dragging' : ''}`}
           onDragEnter={(event) => {
             event.preventDefault()
-            setIsDragging(true)
+            if (!inputDisabled) setIsDragging(true)
           }}
           onDragOver={(event) => {
             event.preventDefault()
-            setIsDragging(true)
+            if (!inputDisabled) setIsDragging(true)
           }}
           onDragLeave={() => setIsDragging(false)}
           onDrop={handleDrop}
@@ -229,17 +300,17 @@ const NewSessionPanel: React.FC<NewSessionPanelProps> = ({
             multiple
             accept=".txt,.md,.markdown,.json,.csv"
             onChange={handleFileInputChange}
-            disabled={isRunning}
+            disabled={inputDisabled}
           />
           <button
             type="button"
             className="btn btn-small"
             onClick={handleChooseFiles}
-            disabled={isRunning}
+            disabled={inputDisabled}
           >
             选择文本文件
           </button>
-          <span className="attachment-drop-hint">或拖拽到这里，仅支持 .txt/.md/.markdown/.json/.csv</span>
+          <span className="attachment-drop-hint">或拖拽到这里</span>
         </div>
 
         {attachments.length > 0 && (
@@ -257,7 +328,7 @@ const NewSessionPanel: React.FC<NewSessionPanelProps> = ({
                   type="button"
                   className="btn btn-small btn-ghost"
                   onClick={() => removeAttachment(attachment.id)}
-                  disabled={isRunning}
+                  disabled={inputDisabled}
                 >
                   移除
                 </button>
@@ -267,14 +338,18 @@ const NewSessionPanel: React.FC<NewSessionPanelProps> = ({
         )}
       </div>
 
-      {/* 启动按钮 */}
-      <button
-        className="btn btn-primary btn-full"
-        onClick={handleStart}
-        disabled={!canStart}
-      >
-        {isRunning ? '辩论进行中...' : '开始模拟辩论'}
-      </button>
+      <div className="session-start-actions">
+        <button
+          className="btn btn-primary btn-full"
+          onClick={() => void handleStart()}
+          disabled={!canStart || isStarting}
+        >
+          {isStarting ? '正在启动...' : isRunning ? '辩论进行中...' : '开始模拟辩论'}
+        </button>
+        {startError && (
+          <div className="session-start-error">{startError}</div>
+        )}
+      </div>
 
       {isRunning && onAbortDebate && (
         <button
