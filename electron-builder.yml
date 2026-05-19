@@ -9,6 +9,10 @@ files:
   - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
 npmRebuild: true
+asarUnpack:
+  - node_modules/better-sqlite3/**/*
+  - node_modules/bindings/**/*
+  - node_modules/file-uri-to-path/**/*
 extraResources:
   - from: node_modules/better-sqlite3/build
     to: better-sqlite3/build

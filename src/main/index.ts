@@ -8,8 +8,9 @@
  * 4. 注册 IPC 处理器
  */
 
-import { app, shell, BrowserWindow } from 'electron'
-import { join } from 'path'
+import { app, shell, BrowserWindow, dialog } from 'electron'
+import { appendFileSync, mkdirSync } from 'fs'
+import { dirname, join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { initDatabase, closeDatabase } from './db/sqlite'
 import { runMigrations } from './db/migrations'
@@ -23,6 +24,38 @@ import { registerExportIpc } from './ipc/export.ipc'
 import { registerProviderIpc } from './ipc/provider.ipc'
 import { registerMemoryIpc } from './ipc/memory.ipc'
 import { registerAttachmentIpc } from './ipc/attachment.ipc'
+
+function formatStartupError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.stack || error.message
+  }
+
+  return String(error)
+}
+
+function writeStartupError(source: string, error: unknown): void {
+  const timestamp = new Date().toISOString()
+  const message = `[${timestamp}] ${source}\n${formatStartupError(error)}\n\n`
+
+  try {
+    const logPath = join(app.getPath('userData'), 'startup-error.log')
+    mkdirSync(dirname(logPath), { recursive: true })
+    appendFileSync(logPath, message, 'utf8')
+  } catch (logError) {
+    console.error('[Startup] Failed to write startup-error.log', logError)
+  }
+}
+
+process.on('uncaughtException', (error) => {
+  console.error('[Startup] Uncaught exception', error)
+  writeStartupError('uncaughtException', error)
+  dialog.showErrorBox('AI Expert Debate Room startup error', formatStartupError(error))
+})
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[Startup] Unhandled rejection', reason)
+  writeStartupError('unhandledRejection', reason)
+})
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -44,8 +77,31 @@ function createWindow(): void {
     }
   })
 
+  let fallbackTimer: NodeJS.Timeout | null = setTimeout(() => {
+    if (!mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      console.warn('[Main] Window was not ready after 8 seconds; showing fallback window')
+      mainWindow.show()
+    }
+  }, 8000)
+
   mainWindow.on('ready-to-show', () => {
+    if (fallbackTimer) {
+      clearTimeout(fallbackTimer)
+      fallbackTimer = null
+    }
     mainWindow.show()
+  })
+
+  mainWindow.webContents.on('did-fail-load', (_, errorCode, errorDescription, validatedURL) => {
+    const error = new Error(
+      `Renderer failed to load: ${errorCode} ${errorDescription} ${validatedURL}`
+    )
+    console.error('[Main] Renderer failed to load', error)
+    writeStartupError('did-fail-load', error)
+
+    if (!mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      mainWindow.show()
+    }
   })
 
   // 外部链接在默认浏览器中打开
@@ -74,9 +130,15 @@ app.whenReady().then(() => {
 
   // 初始化数据库
   console.log('[Main] 正在初始化数据库...')
-  const db = initDatabase()
-  runMigrations(db)
-  console.log('[Main] 数据库初始化完成')
+  try {
+    const db = initDatabase()
+    runMigrations(db)
+    console.log('[Main] 数据库初始化完成')
+  } catch (error) {
+    console.error('[Main] Database initialization failed', error)
+    writeStartupError('database initialization failed', error)
+    dialog.showErrorBox('AI Expert Debate Room startup error', formatStartupError(error))
+  }
 
   // 注册 IPC 处理器
   registerHealthIpc()
