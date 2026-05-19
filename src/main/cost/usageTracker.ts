@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import { estimateModelCallCost } from './costEstimator.ts'
-import { estimateTokens } from './tokenEstimator.ts'
+import { estimateModelCallCost } from './costEstimator'
+import { estimateTokens } from './tokenEstimator'
 
 interface ProviderUsage {
   promptTokens: number

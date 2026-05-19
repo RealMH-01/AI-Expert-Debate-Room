@@ -1,4 +1,4 @@
-import { findModelPricing } from './modelPricing.ts'
+import { findModelPricing } from './modelPricing'
 
 export interface CostEstimateInput {
   provider: string
