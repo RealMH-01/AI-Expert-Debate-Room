@@ -12,3 +12,18 @@ export type {
   SettlementDbAccess,
   ValidVote
 } from './hp-settlement'
+
+export {
+  getMinValidVoterCount,
+  processExpertVote,
+  processRoundVoting,
+  validateVoteOutput
+} from './vote-validator'
+
+export type {
+  RoundVoteResult,
+  VoteAttemptInput,
+  VoteDbAccess,
+  VoteProcessResult,
+  VoteProviderAccess
+} from './vote-validator'
