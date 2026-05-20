@@ -319,6 +319,57 @@ ALTER TABLE model_call_usage ADD COLUMN thinking_enabled INTEGER;
 ALTER TABLE model_call_usage ADD COLUMN response_format TEXT;
 ALTER TABLE model_call_usage ADD COLUMN provider_fallback_json TEXT;
 `
+  },
+  {
+    version: 11,
+    name: 'add settlement rules migration support',
+    sql: `
+-- ============================================================
+-- Migration 11: Settlement Rules - 辩论赛制改动
+-- 新增 vote_attempts 表
+-- agent_snapshots 增加 consecutive_last_count 字段
+-- settlements 增加 raw_hp_after 字段
+-- 创建唯一索引确保幂等性
+-- ============================================================
+
+-- 1. 新增 vote_attempts 表（存储投票重试过程中的无效输出）
+CREATE TABLE IF NOT EXISTS vote_attempts (
+  id              TEXT PRIMARY KEY,
+  session_id      TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  round_index     INTEGER NOT NULL,
+  voter_agent_id  TEXT NOT NULL,
+  attempt         INTEGER NOT NULL,
+  raw_output      TEXT NOT NULL,
+  error           TEXT,
+  created_at      TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_vote_attempts_session_round
+  ON vote_attempts(session_id, round_index);
+
+-- 2. agent_snapshots 增加 consecutive_last_count 字段
+-- 记录该专家截至本轮的连续唯一垫底次数
+ALTER TABLE agent_snapshots ADD COLUMN consecutive_last_count INTEGER NOT NULL DEFAULT 0;
+
+-- 3. settlements 增加 raw_hp_after 字段
+-- TEXT JSON object: { [agentId]: rawHpAfter }
+-- settlements 是整轮结算批次表，没有 agent_id 字段，因此这里存每专家 rawHpAfter 映射
+ALTER TABLE settlements ADD COLUMN raw_hp_after TEXT;
+
+-- 4. 唯一索引（确保幂等性）
+
+-- 同一 voter 对同一 target 在同一轮只能有一条最终投票记录
+CREATE UNIQUE INDEX IF NOT EXISTS idx_votes_unique
+  ON votes(session_id, round_index, voter_agent_id, target_agent_id);
+
+-- 同一专家同一轮次只能有一条快照
+CREATE UNIQUE INDEX IF NOT EXISTS idx_snapshots_unique
+  ON agent_snapshots(session_id, round_index, agent_id);
+
+-- 同一 session 同一轮次只能有一条结算批次记录
+CREATE UNIQUE INDEX IF NOT EXISTS idx_settlements_unique
+  ON settlements(session_id, round_index);
+`
   }
 ]
 
@@ -363,6 +414,77 @@ function assertNoForeignKeyViolations(db: Database.Database): void {
     throw new Error(
       `[Migrations] foreign_key_check failed: ${JSON.stringify(violations)}`
     )
+  }
+}
+
+function checkDuplicatesBeforeV11(db: Database.Database): void {
+  const issues: string[] = []
+
+  const dupVotes = db
+    .prepare(
+      `
+      SELECT session_id, round_index, voter_agent_id, target_agent_id, COUNT(*) as cnt
+      FROM votes
+      GROUP BY session_id, round_index, voter_agent_id, target_agent_id
+      HAVING cnt > 1
+    `
+    )
+    .all() as Array<Record<string, unknown>>
+
+  if (dupVotes.length > 0) {
+    issues.push(
+      `Found ${dupVotes.length} duplicate vote records ` +
+        `(session_id + round_index + voter_agent_id + target_agent_id). ` +
+        `Duplicates (first 5): ${JSON.stringify(dupVotes.slice(0, 5))}`
+    )
+  }
+
+  const dupSnapshots = db
+    .prepare(
+      `
+      SELECT session_id, round_index, agent_id, COUNT(*) as cnt
+      FROM agent_snapshots
+      GROUP BY session_id, round_index, agent_id
+      HAVING cnt > 1
+    `
+    )
+    .all() as Array<Record<string, unknown>>
+
+  if (dupSnapshots.length > 0) {
+    issues.push(
+      `Found ${dupSnapshots.length} duplicate snapshot records ` +
+        `(session_id + round_index + agent_id). ` +
+        `Duplicates (first 5): ${JSON.stringify(dupSnapshots.slice(0, 5))}`
+    )
+  }
+
+  const dupSettlements = db
+    .prepare(
+      `
+      SELECT session_id, round_index, COUNT(*) as cnt
+      FROM settlements
+      GROUP BY session_id, round_index
+      HAVING cnt > 1
+    `
+    )
+    .all() as Array<Record<string, unknown>>
+
+  if (dupSettlements.length > 0) {
+    issues.push(
+      `Found ${dupSettlements.length} duplicate settlement records ` +
+        `(session_id + round_index). ` +
+        `Duplicates (first 5): ${JSON.stringify(dupSettlements.slice(0, 5))}`
+    )
+  }
+
+  if (issues.length > 0) {
+    const errorMessage =
+      `[Migration V11] Cannot proceed: duplicate data detected that would violate unique indexes.\n\n` +
+      issues.join('\n\n') +
+      `\n\nPlease manually inspect and remove duplicate records before restarting the application.`
+
+    console.error(errorMessage)
+    throw new Error(errorMessage)
   }
 }
 
@@ -435,6 +557,10 @@ export function runMigrations(db: Database.Database): void {
     console.log(
       `[Migrations] 执行迁移 v${migration.version}: ${migration.name}`
     )
+
+    if (migration.version === 11) {
+      checkDuplicatesBeforeV11(db)
+    }
 
     runSingleMigration(db, migration)
 
