@@ -127,6 +127,10 @@ vi.mock('../src/main/db/repositories/sessionRepository', () => ({
     [...sessions.values()].find(
       (session) => session.room_id === roomId && session.status === 'running'
     ),
+  getRunningSessionsByRoom: (roomId: string) =>
+    [...sessions.values()].filter(
+      (session) => session.room_id === roomId && session.status === 'running'
+    ),
   getRunningSessions: () =>
     [...sessions.values()].filter((session) => session.status === 'running'),
   updateSessionPhase: (sessionId: string, phase: DebatePhase) => {
@@ -392,6 +396,144 @@ describe('debate abort', () => {
     expect((sessions.get(orphan.id) as Session & { ended_at?: string })?.ended_at).toBeDefined()
     expect(messages.some((message) => message.content.includes('已清理卡住的运行状态'))).toBe(true)
     expect(messages.some((message) => message.content === 'existing transcript stays')).toBe(true)
+    expect(isDebateRunning(room.id)).toBe(false)
+    expect(validateRoomCanStart(room.id).valid).toBe(true)
+  })
+
+  it('repairs all orphan running sessions when the latest session is already finished', async () => {
+    const oldRunningA: Session = {
+      id: 'old-running-a',
+      room_id: room.id,
+      title: 'Old running A',
+      user_question: 'stuck a?',
+      status: 'running',
+      current_phase: 'expert_initial',
+      final_summary: null,
+      created_at: '2026-01-01T00:00:00.000Z',
+      updated_at: '2026-01-01T00:00:00.000Z'
+    }
+    const oldRunningB: Session = {
+      ...oldRunningA,
+      id: 'old-running-b',
+      title: 'Old running B',
+      user_question: 'stuck b?',
+      current_phase: 'voting'
+    }
+    const latestFinished: Session = {
+      ...oldRunningA,
+      id: 'latest-finished',
+      title: 'Latest finished',
+      user_question: 'done',
+      status: 'finished',
+      current_phase: 'moderator_final_summary',
+      final_summary: 'done',
+      created_at: '2026-01-01T00:00:02.000Z',
+      updated_at: '2026-01-01T00:00:02.000Z'
+    }
+    sessions.set(oldRunningA.id, oldRunningA)
+    sessions.set(oldRunningB.id, oldRunningB)
+    sessions.set(latestFinished.id, latestFinished)
+
+    const { abortDebate, isDebateRunning, validateRoomCanStart } = await import('../src/main/debate/debateEngine')
+
+    expect(isDebateRunning(room.id)).toBe(true)
+    const blockedStart = validateRoomCanStart(room.id)
+    expect(blockedStart.valid).toBe(false)
+    expect(blockedStart.errors.join('; ')).toContain('old-running-a')
+    expect(blockedStart.errors.join('; ')).toContain('expert_initial')
+    expect(blockedStart.errors.join('; ')).toContain('running')
+
+    const result = abortDebate(room.id, latestFinished.id)
+
+    expect(result).toMatchObject({
+      success: true,
+      aborted: true,
+      repaired: true,
+      roomId: room.id
+    })
+    expect(sessions.get(oldRunningA.id)?.status).toBe('aborted')
+    expect(sessions.get(oldRunningB.id)?.status).toBe('aborted')
+    expect(sessions.get(latestFinished.id)?.status).toBe('finished')
+    expect(isDebateRunning(room.id)).toBe(false)
+    expect(validateRoomCanStart(room.id).valid).toBe(true)
+  })
+
+  it('prioritizes the specified running session when aborting by session id', async () => {
+    const otherRunning: Session = {
+      id: 'other-running',
+      room_id: room.id,
+      title: 'Other running',
+      user_question: 'other?',
+      status: 'running',
+      current_phase: 'expert_initial',
+      final_summary: null,
+      created_at: '2026-01-01T00:00:00.000Z',
+      updated_at: '2026-01-01T00:00:00.000Z'
+    }
+    const targetRunning: Session = {
+      ...otherRunning,
+      id: 'target-running',
+      title: 'Target running',
+      user_question: 'target?',
+      current_phase: 'voting'
+    }
+    sessions.set(otherRunning.id, otherRunning)
+    sessions.set(targetRunning.id, targetRunning)
+
+    const { abortDebate } = await import('../src/main/debate/debateEngine')
+    const sessionRepo = await import('../src/main/db/repositories/sessionRepository')
+
+    const result = abortDebate(room.id, targetRunning.id)
+
+    expect(result).toMatchObject({
+      success: true,
+      aborted: true,
+      roomId: room.id,
+      sessionId: targetRunning.id
+    })
+    expect(sessionRepo.abortSession).toHaveBeenNthCalledWith(
+      1,
+      targetRunning.id,
+      expect.any(String)
+    )
+    expect(sessions.get(targetRunning.id)?.status).toBe('aborted')
+    expect(sessions.get(otherRunning.id)?.status).toBe('aborted')
+  })
+
+  it('repairs every orphan database running session when there is no active run', async () => {
+    const orphanA: Session = {
+      id: 'orphan-a',
+      room_id: room.id,
+      title: 'Orphan A',
+      user_question: 'stuck a?',
+      status: 'running',
+      current_phase: 'expert_initial',
+      final_summary: null,
+      created_at: '2026-01-01T00:00:00.000Z',
+      updated_at: '2026-01-01T00:00:00.000Z'
+    }
+    const orphanB: Session = {
+      ...orphanA,
+      id: 'orphan-b',
+      title: 'Orphan B',
+      user_question: 'stuck b?',
+      current_phase: 'voting'
+    }
+    sessions.set(orphanA.id, orphanA)
+    sessions.set(orphanB.id, orphanB)
+
+    const { abortDebate, isDebateRunning, validateRoomCanStart } = await import('../src/main/debate/debateEngine')
+
+    const result = abortDebate(room.id)
+
+    expect(result).toMatchObject({
+      success: true,
+      aborted: true,
+      repaired: true,
+      roomId: room.id
+    })
+    expect(sessions.get(orphanA.id)?.status).toBe('aborted')
+    expect(sessions.get(orphanB.id)?.status).toBe('aborted')
     expect(isDebateRunning(room.id)).toBe(false)
     expect(validateRoomCanStart(room.id).valid).toBe(true)
   })

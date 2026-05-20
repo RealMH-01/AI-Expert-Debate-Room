@@ -65,10 +65,6 @@ export function registerDebateIpc(): void {
           return { success: false, error: '请输入讨论问题' }
         }
 
-        if (isDebateRunning(roomId)) {
-          return { success: false, error: '当前会议室已有运行中的辩论' }
-        }
-
         // 异步启动辩论，不等待完成
         // 通过事件推送每一步进展
         const attachmentValidation = validateDebateAttachments(params.attachments)
@@ -100,6 +96,10 @@ export function registerDebateIpc(): void {
           return { success: false, error: validationResult.errors.join('; ') }
         }
 
+        if (isDebateRunning(roomId)) {
+          return { success: false, error: 'Current room still has an active debate in memory; please stop it before starting again.' }
+        }
+
         // 开始辩论（fire-and-forget pattern）
         startDebate(
           roomId,
@@ -124,7 +124,7 @@ export function registerDebateIpc(): void {
     IPC_CHANNELS.DEBATE_ABORT,
     async (_event, params: { roomId: string; sessionId?: string }) => {
       try {
-        const result = abortDebate(params.roomId)
+        const result = abortDebate(params.roomId, params.sessionId)
         return { success: true, data: { ...result, requestedSessionId: params.sessionId } }
       } catch (error: unknown) {
         return { success: false, error: (error as Error).message }

@@ -150,6 +150,13 @@ export function getRunningSession(roomId: string): Session | undefined {
     .get(roomId) as Session | undefined
 }
 
+export function getRunningSessionsByRoom(roomId: string): Session[] {
+  const db = getDatabase()
+  return db
+    .prepare("SELECT * FROM sessions WHERE room_id = ? AND status = 'running' ORDER BY created_at ASC")
+    .all(roomId) as Session[]
+}
+
 export function getRunningSessions(): Session[] {
   const db = getDatabase()
   return db

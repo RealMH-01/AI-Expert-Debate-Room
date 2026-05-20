@@ -143,6 +143,10 @@ vi.mock('../src/main/db/repositories/sessionRepository', () => ({
     [...state.sessions.values()].find(
       (session) => session.room_id === roomId && session.status === 'running'
     ),
+  getRunningSessionsByRoom: (roomId: string) =>
+    [...state.sessions.values()].filter(
+      (session) => session.room_id === roomId && session.status === 'running'
+    ),
   getRunningSessions: () =>
     [...state.sessions.values()].filter((session) => session.status === 'running'),
   updateSessionPhase: (sessionId: string, phase: DebatePhase) => {

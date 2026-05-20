@@ -201,9 +201,14 @@ export function validateRoomCanStart(roomId: string): ValidationResult {
   }
 
   // 检查是否已有运行中的会议
-  const runningSession = sessionRepo.getRunningSession(roomId)
-  if (runningSession) {
-    errors.push('当前会议室已有运行中的会议，请等待结束后再启动')
+  const runningSessionsInDb = sessionRepo.getRunningSessionsByRoom(roomId)
+  if (runningSessionsInDb.length > 0) {
+    const details = runningSessionsInDb
+      .map((session) =>
+        `session id=${session.id}, phase=${session.current_phase ?? 'unknown'}, status=${session.status}`
+      )
+      .join('; ')
+    errors.push(`当前会议室已有运行中的会议，请等待结束后再启动（${details}）`)
   }
 
   return { valid: errors.length === 0, errors, warnings }
@@ -1126,40 +1131,37 @@ async function runFinalSummary(
  * 检查某个 roomId 是否有正在运行的辩论
  */
 export function isDebateRunning(roomId: string): boolean {
-  return runningSessions.has(roomId)
+  return runningSessions.has(roomId) || sessionRepo.getRunningSessionsByRoom(roomId).length > 0
 }
 
-/**
- * 中止某个会议室当前运行或等待结算的辩论。
- *
- * 该方法同时承担 orphan running session 的收敛：如果内存中没有
- * active run，但数据库仍有 running session，会将其标记为 aborted。
- */
-export function abortDebate(roomId: string): AbortDebateResult {
-  const running = runningSessions.get(roomId)
-  if (!running) {
-    const orphanSession = sessionRepo.getRunningSession(roomId)
-    if (!orphanSession) {
-      return { success: true, aborted: false, noop: true, roomId }
-    }
+function markOrphanRunningSessionAborted(session: Session): Session {
+  return markSessionAborted(
+    session,
+    undefined,
+    ORPHAN_ABORT_MESSAGE,
+    ORPHAN_ABORT_MESSAGE,
+    'orphan_running_repaired'
+  )
+}
 
-    const repairedSession = markSessionAborted(
-      orphanSession,
-      undefined,
-      ORPHAN_ABORT_MESSAGE,
-      ORPHAN_ABORT_MESSAGE,
-      'orphan_running_repaired'
-    )
-    return {
-      success: true,
-      aborted: true,
-      repaired: true,
-      roomId,
-      sessionId: repairedSession.id,
-      session: repairedSession
-    }
-  }
+function getOrderedRunningSessionsByRoom(
+  roomId: string,
+  preferredSessionId?: string,
+  excludedSessionIds = new Set<string>()
+): Session[] {
+  const sessions = sessionRepo
+    .getRunningSessionsByRoom(roomId)
+    .filter((session) => !excludedSessionIds.has(session.id))
 
+  if (!preferredSessionId) return sessions
+
+  return [
+    ...sessions.filter((session) => session.id === preferredSessionId),
+    ...sessions.filter((session) => session.id !== preferredSessionId)
+  ]
+}
+
+function abortActiveDebate(roomId: string, running: RunningDebateInfo): Session | undefined {
   const pending = pendingSettlements.get(running.sessionId)
   if (pending) {
     if (!running.controller.signal.aborted) {
@@ -1173,13 +1175,7 @@ export function abortDebate(roomId: string): AbortDebateResult {
     pendingSettlements.delete(running.sessionId)
     runningSessions.delete(roomId)
     pending.callbacks.onSessionFinished(abortedSession)
-    return {
-      success: true,
-      aborted: true,
-      roomId,
-      sessionId: abortedSession.id,
-      session: abortedSession
-    }
+    return abortedSession
   }
 
   const runningSession = sessionRepo.getSessionById(running.sessionId)
@@ -1191,13 +1187,57 @@ export function abortDebate(roomId: string): AbortDebateResult {
     running.controller.abort(new DebateAbortError())
   }
   runningSessions.delete(roomId)
+  return abortedSession
+}
+
+/**
+ * 中止某个会议室当前运行或等待结算的辩论。
+ *
+ * 该方法同时承担 orphan running session 的收敛：如果内存中没有
+ * active run，但数据库仍有 running session，会将其标记为 aborted。
+ */
+export function abortDebate(roomId: string, sessionId?: string): AbortDebateResult {
+  const running = runningSessions.get(roomId)
+  const excludedSessionIds = new Set<string>()
+  const repairedSessions: Session[] = []
+
+  if (sessionId && running?.sessionId !== sessionId) {
+    const requestedSession = sessionRepo.getSessionById(sessionId)
+    if (requestedSession?.room_id === roomId && requestedSession.status === 'running') {
+      repairedSessions.push(markOrphanRunningSessionAborted(requestedSession))
+      excludedSessionIds.add(requestedSession.id)
+    }
+  }
+
+  const activeSession = running ? abortActiveDebate(roomId, running) : undefined
+  if (activeSession) {
+    excludedSessionIds.add(activeSession.id)
+  }
+
+  const remainingRunningSessions = getOrderedRunningSessionsByRoom(
+    roomId,
+    sessionId,
+    excludedSessionIds
+  )
+  repairedSessions.push(...remainingRunningSessions.map(markOrphanRunningSessionAborted))
+
+  const selectedSession =
+    repairedSessions.find((session) => session.id === sessionId) ??
+    (activeSession?.id === sessionId ? activeSession : undefined) ??
+    activeSession ??
+    repairedSessions[0]
+
+  if (!selectedSession) {
+    return { success: true, aborted: false, noop: true, roomId }
+  }
 
   return {
     success: true,
     aborted: true,
     roomId,
-    sessionId: running.sessionId,
-    session: abortedSession
+    sessionId: selectedSession.id,
+    repaired: repairedSessions.length > 0 || !running,
+    session: selectedSession
   }
 }
 

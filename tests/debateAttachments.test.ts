@@ -97,6 +97,7 @@ vi.mock('../src/main/db/repositories/sessionRepository', () => ({
   },
   getSessionById: (id: string) => sessions.get(id),
   getRunningSession: () => undefined,
+  getRunningSessionsByRoom: () => [],
   updateSessionPhase: (sessionId: string, phase: DebatePhase) => {
     const session = sessions.get(sessionId)!
     const updated = { ...session, current_phase: phase }
