@@ -271,3 +271,5 @@ export interface ValidationResult {
   errors: string[]
   warnings: string[]
 }
+
+export * from './types/index'
