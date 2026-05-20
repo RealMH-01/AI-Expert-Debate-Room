@@ -27,3 +27,20 @@ export type {
   VoteProcessResult,
   VoteProviderAccess
 } from './vote-validator'
+
+export {
+  PhaseManager,
+  getNextRoundPhase,
+  getRoundPhaseSequence,
+  isSettlementRound,
+  isValidSessionTransition,
+  mapLegacyStatus,
+  validateDecisionAction
+} from './phase-manager'
+
+export type {
+  PhaseDbAccess,
+  PhaseTransitionResult,
+  PhaseUserDecisionAction,
+  UserDecisionResult
+} from './phase-manager'
