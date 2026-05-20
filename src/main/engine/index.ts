@@ -44,3 +44,26 @@ export type {
   PhaseUserDecisionAction,
   UserDecisionResult
 } from './phase-manager'
+
+export {
+  buildDebateHpHint,
+  buildDebatePromptMessages,
+  buildDebateSystemPrompt,
+  buildDebateUserMessage,
+  buildVoteJsonExample,
+  buildVotePromptMessages,
+  buildVoteSystemPrompt,
+  buildVoteUserMessage,
+  formatExpertForPrompt,
+  formatTargetExpertForVote,
+  validateDebatePromptInput,
+  validateVotePromptExperts,
+  validateVotePromptInput
+} from './prompt-templates'
+
+export type {
+  DebatePromptInput,
+  PromptExpertInfo,
+  PromptMessages,
+  VotePromptInput
+} from './prompt-templates'
