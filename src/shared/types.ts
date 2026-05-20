@@ -1,3 +1,6 @@
+import type { RulesConfig as DebateRulesConfig } from './types/rules.types'
+import type { SessionStatus as DebateSessionStatus } from './types/phase.types'
+
 /**
  * 共享类型定义
  *
@@ -7,7 +10,7 @@
 
 // ===== Room 类型 =====
 
-export interface RulesConfig {
+export interface RulesConfig extends DebateRulesConfig {
   /** 最少辩论轮数，不允许小于 3 */
   min_debate_rounds: number
   /** 初始 HP，默认 100 */
@@ -42,6 +45,31 @@ export interface RulesConfig {
 
 /** 默认规则配置 */
 export const DEFAULT_RULES_CONFIG: RulesConfig = {
+  hpInitial: 100,
+  hpCap: 100,
+  settlementMode: 'per-round',
+  settlementCycleRounds: 3,
+  formulas: {
+    3: [5, -6, -20],
+    4: [5, 1, -10, -20],
+    5: [5, 2, -3, -12, -20],
+    6: [5, 2, -3, -6, -12, -20],
+    7: [5, 2, -2, -4, -7, -12, -20],
+  },
+  protectionSettlementCount: 2,
+  protectionReduction: 0.5,
+  consecutiveLastThreshold: 3,
+  consecutiveLastPenalty: -8,
+  comebackBonus: {
+    enabled: true,
+    tiers: [
+      { hpAtOrBelow: 10, multiplier: 3, maxGain: 12 },
+      { hpAtOrBelow: 20, multiplier: 2.5, maxGain: 10 },
+      { hpAtOrBelow: 30, multiplier: 2, maxGain: 8 },
+    ],
+  },
+  maxRounds: 20,
+  speakingRightRange: [-5, 5],
   min_debate_rounds: 3,
   initial_hp: 100,
   max_hp: 100,
@@ -136,7 +164,9 @@ export interface ProviderInfo {
 
 // ===== Session 类型 =====
 
-export type SessionStatus = 'preparing' | 'running' | 'finished' | 'failed' | 'aborted'
+export type LegacySessionStatus = 'preparing' | 'running' | 'finished' | 'failed' | 'aborted'
+
+export type SessionStatus = DebateSessionStatus | LegacySessionStatus
 
 export type DebatePhase =
   | 'moderator_opening'
@@ -152,7 +182,7 @@ export interface Session {
   room_id: string
   title: string
   user_question: string | null
-  status: SessionStatus
+  status: LegacySessionStatus
   current_phase: DebatePhase | null
   final_summary: string | null
   created_at: string
