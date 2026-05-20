@@ -49,6 +49,36 @@ export function updateSettlementStatus(
   return getSettlementById(id)
 }
 
+export function tryResolvePendingSettlement(
+  id: string,
+  status: 'applied' | 'vetoed'
+): { updated: boolean; record?: SettlementRecord } {
+  const db = getDatabase()
+  const now = new Date().toISOString()
+
+  const result =
+    status === 'applied'
+      ? db
+          .prepare(
+            `UPDATE settlements
+             SET status = ?, applied_at = ?
+             WHERE id = ? AND status = 'pending'`
+          )
+          .run(status, now, id)
+      : db
+          .prepare(
+            `UPDATE settlements
+             SET status = ?
+             WHERE id = ? AND status = 'pending'`
+          )
+          .run(status, id)
+
+  return {
+    updated: result.changes === 1,
+    record: getSettlementById(id)
+  }
+}
+
 /**
  * 根据 ID 获取结算记录
  */

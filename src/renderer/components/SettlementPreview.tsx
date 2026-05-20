@@ -5,24 +5,26 @@
  * 结算不会立刻生效 —— 用户拥有否决权。
  */
 
-import React, { useState } from 'react'
+import React from 'react'
 import type { SettlementResultDisplay } from '../../shared/types'
+
+export type SettlementResolvingAction = 'apply' | 'veto' | null
 
 interface SettlementPreviewProps {
   settlement: SettlementResultDisplay | null
-  onApply: () => void
-  onVeto: () => void
+  onApply: () => void | Promise<void>
+  onVeto: () => void | Promise<void>
   visible: boolean
+  resolvingAction?: SettlementResolvingAction
 }
 
 const SettlementPreview: React.FC<SettlementPreviewProps> = ({
   settlement,
   onApply,
   onVeto,
-  visible
+  visible,
+  resolvingAction = null
 }) => {
-  const [applying, setApplying] = useState(false)
-
   if (!visible || !settlement) return null
 
   if (settlement.status === 'skipped') {
@@ -54,9 +56,14 @@ const SettlementPreview: React.FC<SettlementPreviewProps> = ({
 
   // status === 'pending'
   const handleApply = async () => {
-    setApplying(true)
-    onApply()
+    await onApply()
   }
+
+  const handleVeto = async () => {
+    await onVeto()
+  }
+
+  const isResolving = resolvingAction !== null
 
   return (
     <div className="settlement-preview settlement-pending">
@@ -122,16 +129,24 @@ const SettlementPreview: React.FC<SettlementPreviewProps> = ({
         <button
           className="btn-apply-settlement"
           onClick={handleApply}
-          disabled={applying}
+          disabled={isResolving}
         >
-          {applying ? '应用中...' : '✅ 应用结算'}
+          {resolvingAction === 'apply'
+            ? '正在应用...'
+            : isResolving
+              ? '正在处理结算...'
+              : '✅ 应用结算'}
         </button>
         <button
           className="btn-veto-settlement"
-          onClick={onVeto}
-          disabled={applying}
+          onClick={handleVeto}
+          disabled={isResolving}
         >
-          🚫 否决本轮结算
+          {resolvingAction === 'veto'
+            ? '正在否决...'
+            : isResolving
+              ? '正在处理结算...'
+              : '🚫 否决本轮结算'}
         </button>
       </div>
     </div>

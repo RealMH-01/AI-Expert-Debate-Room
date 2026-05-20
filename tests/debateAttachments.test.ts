@@ -143,7 +143,9 @@ vi.mock('../src/main/db/repositories/messageRepository', () => ({
     }
     messages.push(message)
     return message
-  }
+  },
+  getMessagesBySession: (sessionId: string) =>
+    messages.filter((message) => message.session_id === sessionId)
 }))
 
 vi.mock('../src/main/db/repositories/roomRepository', () => ({

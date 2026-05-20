@@ -21,6 +21,7 @@ import TranscriptView from './TranscriptView'
 import SessionStatusPanel from './SessionStatusPanel'
 import VotingResultPanel from './VotingResultPanel'
 import SettlementPreview from './SettlementPreview'
+import type { SettlementResolvingAction } from './SettlementPreview'
 import HellPoolPanel from './HellPoolPanel'
 
 interface DebatePanelProps {
@@ -39,6 +40,8 @@ const DebatePanel: React.FC<DebatePanelProps> = ({ roomId }) => {
 
   // 投票和结算状态
   const [settlement, setSettlement] = useState<SettlementResultDisplay | null>(null)
+  const [settlementResolvingAction, setSettlementResolvingAction] =
+    useState<SettlementResolvingAction>(null)
   const [hellPoolExperts, setHellPoolExperts] = useState<Agent[]>([])
   const [aliveExperts, setAliveExperts] = useState<Agent[]>([])
 
@@ -150,6 +153,7 @@ const DebatePanel: React.FC<DebatePanelProps> = ({ roomId }) => {
       setSession(null)
       setCurrentPhase(null)
       setSettlement(null)
+      setSettlementResolvingAction(null)
 
       try {
         const res = await window.api.debateStart({ roomId, userQuestion: question, attachments })
@@ -195,26 +199,51 @@ const DebatePanel: React.FC<DebatePanelProps> = ({ roomId }) => {
 
   // 应用结算
   const handleApplySettlement = useCallback(async () => {
-    if (!session) return
-    const res = await window.api.settlementApply(session.id)
-    if (res.success) {
-      setSettlement((prev) => (prev ? { ...prev, status: 'applied' } : null))
-      loadExpertStatus()
-    } else {
-      setError(res.error || '应用结算失败')
+    if (!session || settlementResolvingAction) return
+    setError(null)
+    setNotice(null)
+    setSettlementResolvingAction('apply')
+    try {
+      const res = await window.api.settlementApply(session.id)
+      if (res.success) {
+        setSettlement((prev) => (prev ? { ...prev, status: 'applied' } : null))
+        await refreshRoomState()
+        if (res.alreadyResolved) {
+          setNotice('结算已处理，已刷新当前状态。')
+        }
+      } else {
+        setError(res.error || '应用结算失败')
+      }
+    } catch (error) {
+      setError(error instanceof Error ? error.message : '应用结算失败')
+    } finally {
+      setSettlementResolvingAction(null)
     }
-  }, [session, loadExpertStatus])
+  }, [session, settlementResolvingAction, refreshRoomState])
 
   // 否决结算
   const handleVetoSettlement = useCallback(async () => {
-    if (!session) return
-    const res = await window.api.settlementVeto(session.id)
-    if (res.success) {
-      setSettlement((prev) => (prev ? { ...prev, status: 'vetoed' } : null))
-    } else {
-      setError(res.error || '否决结算失败')
+    if (!session || settlementResolvingAction) return
+    setError(null)
+    setNotice(null)
+    setSettlementResolvingAction('veto')
+    try {
+      const res = await window.api.settlementVeto(session.id)
+      if (res.success) {
+        setSettlement((prev) => (prev ? { ...prev, status: 'vetoed' } : null))
+        await refreshRoomState()
+        if (res.alreadyResolved) {
+          setNotice('结算已处理，已刷新当前状态。')
+        }
+      } else {
+        setError(res.error || '否决结算失败')
+      }
+    } catch (error) {
+      setError(error instanceof Error ? error.message : '否决结算失败')
+    } finally {
+      setSettlementResolvingAction(null)
     }
-  }, [session])
+  }, [session, settlementResolvingAction, refreshRoomState])
 
   return (
     <div className="debate-panel">
@@ -268,6 +297,7 @@ const DebatePanel: React.FC<DebatePanelProps> = ({ roomId }) => {
         onApply={handleApplySettlement}
         onVeto={handleVetoSettlement}
         visible={!!settlement}
+        resolvingAction={settlementResolvingAction}
       />
 
       {/* Hell Pool 状态面板 */}

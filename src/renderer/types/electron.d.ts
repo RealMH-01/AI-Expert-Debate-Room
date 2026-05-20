@@ -43,6 +43,8 @@ export interface IpcResponse<T = unknown> {
   success: boolean
   data?: T
   error?: string
+  alreadyResolved?: boolean
+  resolutionStatus?: 'applied' | 'vetoed' | 'finished'
 }
 
 /** Electron API 接口 */

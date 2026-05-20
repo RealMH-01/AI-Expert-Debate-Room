@@ -26,7 +26,13 @@ export function registerSettlementIpc(): void {
   ipcMain.handle(IPC_CHANNELS.SETTLEMENT_APPLY, async (_event, sessionId: string) => {
     try {
       const result = await applySettlement(sessionId)
-      return { success: result.success, data: result.session, error: result.error }
+      return {
+        success: result.success,
+        data: result.session,
+        error: result.error,
+        alreadyResolved: result.alreadyResolved,
+        resolutionStatus: result.resolutionStatus
+      }
     } catch (error: unknown) {
       return { success: false, error: (error as Error).message }
     }
@@ -36,7 +42,13 @@ export function registerSettlementIpc(): void {
   ipcMain.handle(IPC_CHANNELS.SETTLEMENT_VETO, async (_event, sessionId: string) => {
     try {
       const result = await vetoSettlement(sessionId)
-      return { success: result.success, data: result.session, error: result.error }
+      return {
+        success: result.success,
+        data: result.session,
+        error: result.error,
+        alreadyResolved: result.alreadyResolved,
+        resolutionStatus: result.resolutionStatus
+      }
     } catch (error: unknown) {
       return { success: false, error: (error as Error).message }
     }

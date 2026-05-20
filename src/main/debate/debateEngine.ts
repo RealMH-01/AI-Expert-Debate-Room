@@ -135,6 +135,18 @@ interface PendingSettlementInfo {
 }
 
 const pendingSettlements = new Map<string, PendingSettlementInfo>()
+const resolvingSettlements = new Set<string>()
+const finalSummaryInFlight = new Map<string, Promise<Session>>()
+
+type SettlementResolutionStatus = 'applied' | 'vetoed'
+
+interface SettlementActionResult {
+  success: boolean
+  error?: string
+  session?: Session
+  alreadyResolved?: boolean
+  resolutionStatus?: SettlementResolutionStatus | 'finished'
+}
 
 /**
  * 校验会议室是否可以启动辩论
@@ -384,7 +396,7 @@ export async function startDebate(
 
     // === 如果投票被跳过，直接进入最终总结 ===
     // === Step 6: 主理人最终总结 ===
-    session = await runFinalSummary(
+    session = await runFinalSummaryOnce(
       session,
       moderatorProvider,
       moderator,
@@ -951,6 +963,85 @@ async function runDebateRound(
   return session
 }
 
+function getResolvedSettlementStatus(sessionId: string): SettlementResolutionStatus | undefined {
+  const latest = settlementRepo
+    .getSettlementsBySession(sessionId)
+    .filter((settlement) => settlement.status === 'applied' || settlement.status === 'vetoed')
+    .at(-1)
+
+  return latest?.status as SettlementResolutionStatus | undefined
+}
+
+function getExistingFinalSummarySession(sessionId: string): Session | undefined {
+  const currentSession = sessionRepo.getSessionById(sessionId)
+  if (!currentSession) return undefined
+
+  if (currentSession.final_summary) {
+    return currentSession
+  }
+
+  const finalSummaryMessage = messageRepo
+    .getMessagesBySession(sessionId)
+    .find((message) => message.phase === 'moderator_final_summary')
+
+  if (!finalSummaryMessage) return undefined
+
+  if (currentSession.status === 'running') {
+    return sessionRepo.finishSession(sessionId, finalSummaryMessage.content) ?? currentSession
+  }
+
+  return currentSession
+}
+
+async function runFinalSummaryOnce(
+  session: Session,
+  provider: DebateModelProvider,
+  moderator: Agent,
+  experts: Agent[],
+  userQuestion: string,
+  rules: RulesConfig,
+  roomName: string,
+  totalRounds: number,
+  transcript: TranscriptEntry[],
+  callbacks: DebateEngineCallbacks,
+  signal: AbortSignal,
+  attachments?: DebateAttachmentContext[]
+): Promise<Session> {
+  const existing = getExistingFinalSummarySession(session.id)
+  if (existing) {
+    console.warn(`[DebateEngine] final summary already exists for session ${session.id}; reusing it`)
+    return existing
+  }
+
+  const inFlight = finalSummaryInFlight.get(session.id)
+  if (inFlight) {
+    console.warn(`[DebateEngine] final summary already in-flight for session ${session.id}; reusing it`)
+    return inFlight
+  }
+
+  const promise = runFinalSummary(
+    session,
+    provider,
+    moderator,
+    experts,
+    userQuestion,
+    rules,
+    roomName,
+    totalRounds,
+    transcript,
+    callbacks,
+    signal,
+    attachments
+  )
+  finalSummaryInFlight.set(session.id, promise)
+
+  try {
+    return await promise
+  } finally {
+    finalSummaryInFlight.delete(session.id)
+  }
+}
+
 async function runFinalSummary(
   session: Session,
   provider: DebateModelProvider,
@@ -966,6 +1057,9 @@ async function runFinalSummary(
   attachments?: DebateAttachmentContext[]
 ): Promise<Session> {
   throwIfAborted(signal)
+  const existingBeforeStart = getExistingFinalSummarySession(session.id)
+  if (existingBeforeStart) return existingBeforeStart
+
   const phase: DebatePhase = 'moderator_final_summary'
   session = sessionRepo.updateSessionPhase(session.id, phase)!
   callbacks.onPhaseChange(phase, session)
@@ -993,6 +1087,10 @@ async function runFinalSummary(
     input,
     () => provider.generateModeratorFinalSummary(input)
   )
+
+  throwIfAborted(signal)
+  const existingBeforeInsert = getExistingFinalSummarySession(session.id)
+  if (existingBeforeInsert) return existingBeforeInsert
 
   const message = messageRepo.insertMessage({
     sessionId: session.id,
@@ -1142,12 +1240,30 @@ export function getPendingSettlementResult(sessionId: string): SettlementResult 
 
   // 回退到 SQLite：从 settlements 表中读取 pending 状态的记录
   const dbRecord = settlementRepo.getPendingSettlement(sessionId)
-  if (!dbRecord) return null
+  if (!dbRecord) {
+    const latestRecord = settlementRepo.getSettlementsBySession(sessionId).at(-1)
+    if (!latestRecord) return null
+
+    try {
+      const parsed = JSON.parse(latestRecord.settlement_json) as SettlementResult
+      return {
+        ...parsed,
+        sessionId: latestRecord.session_id,
+        status: latestRecord.status as SettlementResult['status']
+      }
+    } catch {
+      return null
+    }
+  }
 
   try {
     const parsed = JSON.parse(dbRecord.settlement_json) as SettlementResult
     // 确保 settlementId 可用
-    return { ...parsed, sessionId: dbRecord.session_id }
+    return {
+      ...parsed,
+      sessionId: dbRecord.session_id,
+      status: dbRecord.status as SettlementResult['status']
+    }
   } catch {
     return null
   }
@@ -1498,11 +1614,29 @@ async function runVotingPhase(
  *
  * 原子化：使用 SQLite transaction 确保 agent 更新 + 快照 + settlement 状态更新原子提交
  */
+function alreadyResolvedSettlementResult(sessionId: string): SettlementActionResult {
+  const session = sessionRepo.getSessionById(sessionId)
+  const resolutionStatus = getResolvedSettlementStatus(sessionId)
+
+  return {
+    success: true,
+    session,
+    alreadyResolved: true,
+    resolutionStatus: resolutionStatus ?? (session?.status === 'finished' ? 'finished' : undefined)
+  }
+}
+
 export async function applySettlement(sessionId: string): Promise<{
   success: boolean
   error?: string
   session?: Session
+  alreadyResolved?: boolean
+  resolutionStatus?: SettlementResolutionStatus | 'finished'
 }> {
+  if (resolvingSettlements.has(sessionId)) {
+    return alreadyResolvedSettlementResult(sessionId)
+  }
+
   const info = pendingSettlements.get(sessionId)
 
   if (info) {
@@ -1520,7 +1654,7 @@ export async function applySettlement(sessionId: string): Promise<{
 async function applySettlementWithContext(
   sessionId: string,
   info: PendingSettlementInfo
-): Promise<{ success: boolean; error?: string; session?: Session }> {
+): Promise<SettlementActionResult> {
   const {
     session,
     settlementRecordId,
@@ -1539,6 +1673,7 @@ async function applySettlementWithContext(
   } = info
 
   try {
+    resolvingSettlements.add(sessionId)
     const db = getDatabase()
 
     // 原子化：在 transaction 中执行所有 agent 更新、快照、settlement 状态变更
@@ -1582,10 +1717,14 @@ async function applySettlementWithContext(
       }
 
       // 所有 agent 和 snapshot 更新成功后再标记 settlement 为 applied
-      settlementRepo.updateSettlementStatus(settlementRecordId, 'applied')
+      const resolved = settlementRepo.tryResolvePendingSettlement(settlementRecordId, 'applied')
+      if (!resolved.updated) {
+        throw new Error('settlement_already_resolved')
+      }
     })
 
     applyTxn()
+    pendingSettlements.delete(sessionId)
 
     // 事务成功后发送 UI 消息（不在事务内，因为非 DB 操作）
     for (const item of settlementResult.items) {
@@ -1620,7 +1759,7 @@ async function applySettlementWithContext(
     const updatedExperts = agentRepo
       .getExperts(session.room_id)
       .filter((e) => e.status === 'active')
-    const finalSession = await runFinalSummary(
+    const finalSession = await runFinalSummaryOnce(
       session,
       moderatorProvider,
       moderator,
@@ -1638,15 +1777,22 @@ async function applySettlementWithContext(
     callbacks.onSessionFinished(finalSession)
     pendingSettlements.delete(sessionId)
     runningSessions.delete(session.room_id)
+    resolvingSettlements.delete(sessionId)
 
-    return { success: true, session: finalSession }
+    return { success: true, session: finalSession, resolutionStatus: 'applied' }
   } catch (error: unknown) {
     if (isDebateAbortError(error)) {
       const abortedSession = markSessionAborted(session, callbacks)
       pendingSettlements.delete(sessionId)
       runningSessions.delete(session.room_id)
+      resolvingSettlements.delete(sessionId)
       callbacks.onSessionFinished(abortedSession)
       return { success: true, session: abortedSession }
+    }
+    resolvingSettlements.delete(sessionId)
+    if (error instanceof Error && error.message === 'settlement_already_resolved') {
+      pendingSettlements.delete(sessionId)
+      return alreadyResolvedSettlementResult(sessionId)
     }
     const errorMsg = error instanceof Error ? error.message : '未知错误'
     return { success: false, error: errorMsg }
@@ -1659,10 +1805,10 @@ async function applySettlementWithContext(
  */
 async function applySettlementFromDb(
   sessionId: string
-): Promise<{ success: boolean; error?: string; session?: Session }> {
+): Promise<SettlementActionResult> {
   const dbRecord = settlementRepo.getPendingSettlement(sessionId)
   if (!dbRecord) {
-    return { success: false, error: '没有待确认的结算' }
+    return alreadyResolvedSettlementResult(sessionId)
   }
 
   let settlementResult: SettlementResult
@@ -1714,7 +1860,10 @@ async function applySettlementFromDb(
         })
       }
 
-      settlementRepo.updateSettlementStatus(dbRecord.id, 'applied')
+      const resolved = settlementRepo.tryResolvePendingSettlement(dbRecord.id, 'applied')
+      if (!resolved.updated) {
+        throw new Error('settlement_already_resolved')
+      }
     })
 
     applyTxn()
@@ -1743,8 +1892,11 @@ async function applySettlementFromDb(
       generateSessionReviewOnFinish(sessionId, finalSession.room_id)
     }
 
-    return { success: true, session: finalSession }
+    return { success: true, session: finalSession, resolutionStatus: 'applied' }
   } catch (error: unknown) {
+    if (error instanceof Error && error.message === 'settlement_already_resolved') {
+      return alreadyResolvedSettlementResult(sessionId)
+    }
     const errorMsg = error instanceof Error ? error.message : '未知错误'
     return { success: false, error: errorMsg }
   }
@@ -1761,7 +1913,13 @@ export async function vetoSettlement(sessionId: string): Promise<{
   success: boolean
   error?: string
   session?: Session
+  alreadyResolved?: boolean
+  resolutionStatus?: SettlementResolutionStatus | 'finished'
 }> {
+  if (resolvingSettlements.has(sessionId)) {
+    return alreadyResolvedSettlementResult(sessionId)
+  }
+
   const info = pendingSettlements.get(sessionId)
 
   if (info) {
@@ -1777,7 +1935,7 @@ export async function vetoSettlement(sessionId: string): Promise<{
 async function vetoSettlementWithContext(
   sessionId: string,
   info: PendingSettlementInfo
-): Promise<{ success: boolean; error?: string; session?: Session }> {
+): Promise<SettlementActionResult> {
   const {
     session,
     settlementRecordId,
@@ -1795,11 +1953,15 @@ async function vetoSettlementWithContext(
   } = info
 
   try {
+    resolvingSettlements.add(sessionId)
     const db = getDatabase()
 
     // 原子化：否决状态 + 快照
     const vetoTxn = db.transaction(() => {
-      settlementRepo.updateSettlementStatus(settlementRecordId, 'vetoed')
+      const resolved = settlementRepo.tryResolvePendingSettlement(settlementRecordId, 'vetoed')
+      if (!resolved.updated) {
+        throw new Error('settlement_already_resolved')
+      }
 
       for (const expert of experts) {
         settlementRepo.insertAgentSnapshot({
@@ -1815,6 +1977,7 @@ async function vetoSettlementWithContext(
     })
 
     vetoTxn()
+    pendingSettlements.delete(sessionId)
 
     // 系统消息
     const vetoMsg = messageRepo.insertMessage({
@@ -1830,7 +1993,7 @@ async function vetoSettlementWithContext(
     callbacks.onMessage(vetoMsg)
 
     // 继续最终总结
-    const finalSession = await runFinalSummary(
+    const finalSession = await runFinalSummaryOnce(
       session,
       moderatorProvider,
       moderator,
@@ -1848,15 +2011,22 @@ async function vetoSettlementWithContext(
     callbacks.onSessionFinished(finalSession)
     pendingSettlements.delete(sessionId)
     runningSessions.delete(session.room_id)
+    resolvingSettlements.delete(sessionId)
 
-    return { success: true, session: finalSession }
+    return { success: true, session: finalSession, resolutionStatus: 'vetoed' }
   } catch (error: unknown) {
     if (isDebateAbortError(error)) {
       const abortedSession = markSessionAborted(session, callbacks)
       pendingSettlements.delete(sessionId)
       runningSessions.delete(session.room_id)
+      resolvingSettlements.delete(sessionId)
       callbacks.onSessionFinished(abortedSession)
       return { success: true, session: abortedSession }
+    }
+    resolvingSettlements.delete(sessionId)
+    if (error instanceof Error && error.message === 'settlement_already_resolved') {
+      pendingSettlements.delete(sessionId)
+      return alreadyResolvedSettlementResult(sessionId)
     }
     const errorMsg = error instanceof Error ? error.message : '未知错误'
     return { success: false, error: errorMsg }
@@ -1868,10 +2038,10 @@ async function vetoSettlementWithContext(
  */
 async function vetoSettlementFromDb(
   sessionId: string
-): Promise<{ success: boolean; error?: string; session?: Session }> {
+): Promise<SettlementActionResult> {
   const dbRecord = settlementRepo.getPendingSettlement(sessionId)
   if (!dbRecord) {
-    return { success: false, error: '没有待确认的结算' }
+    return alreadyResolvedSettlementResult(sessionId)
   }
 
   try {
@@ -1886,7 +2056,10 @@ async function vetoSettlementFromDb(
     const experts = agentRepo.getExperts(session.room_id)
 
     const vetoTxn = db.transaction(() => {
-      settlementRepo.updateSettlementStatus(dbRecord.id, 'vetoed')
+      const resolved = settlementRepo.tryResolvePendingSettlement(dbRecord.id, 'vetoed')
+      if (!resolved.updated) {
+        throw new Error('settlement_already_resolved')
+      }
 
       for (const expert of experts) {
         settlementRepo.insertAgentSnapshot({
@@ -1927,8 +2100,11 @@ async function vetoSettlementFromDb(
       generateSessionReviewOnFinish(sessionId, finalSession.room_id)
     }
 
-    return { success: true, session: finalSession }
+    return { success: true, session: finalSession, resolutionStatus: 'vetoed' }
   } catch (error: unknown) {
+    if (error instanceof Error && error.message === 'settlement_already_resolved') {
+      return alreadyResolvedSettlementResult(sessionId)
+    }
     const errorMsg = error instanceof Error ? error.message : '未知错误'
     return { success: false, error: errorMsg }
   }

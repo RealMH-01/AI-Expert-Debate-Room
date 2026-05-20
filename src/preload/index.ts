@@ -16,6 +16,8 @@ interface IpcResponse<T = unknown> {
   success: boolean
   data?: T
   error?: string
+  alreadyResolved?: boolean
+  resolutionStatus?: 'applied' | 'vetoed' | 'finished'
 }
 
 /** 暴露给渲染进程的 API */
