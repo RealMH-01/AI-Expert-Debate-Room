@@ -26,8 +26,8 @@ const MAX_SCORE = 10
  * Input for recording one vote attempt.
  *
  * This is not a full database row. A future DB adapter is responsible for
- * generating id and created_at, then mapping roundIndex and voterAgentId to the
- * concrete vote_attempts columns.
+ * generating id and created_at, storing error in invalid_reason, then mapping
+ * roundIndex and voterAgentId to the concrete vote_attempts columns.
  */
 export interface VoteAttemptInput {
   sessionId: string
@@ -66,7 +66,8 @@ export interface VoteDbAccess {
    * Writes the final abstained marker.
    *
    * Abstained has no natural target expert. The storage location is left to a
-   * future DB adapter and is not assumed here.
+   * future DB adapter and this interface does not assume writing to the votes
+   * table.
    */
   writeAbstained(
     sessionId: string,
