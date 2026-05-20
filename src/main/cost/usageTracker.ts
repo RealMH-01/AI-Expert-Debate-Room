@@ -1,11 +1,25 @@
 import { randomUUID } from 'node:crypto'
 import { estimateModelCallCost } from './costEstimator'
 import { estimateTokens } from './tokenEstimator'
+import { sanitizeErrorMessage } from '../providers/types'
 
 interface ProviderUsage {
   promptTokens: number
   completionTokens: number
   totalTokens: number
+}
+
+type ProviderTelemetry = {
+  queueWaitMs?: number
+  requestDurationMs?: number
+  totalDurationMs?: number
+  finishReason?: string
+  errorType?: string
+  timeoutMs?: number
+  maxTokens?: number
+  thinkingEnabled?: boolean
+  responseFormat?: string
+  fallback?: unknown
 }
 
 export interface UsageTrackMetadata {
@@ -37,6 +51,16 @@ export interface ModelCallUsageRecordInput {
   pricing_source: string
   request_started_at: string
   request_finished_at: string
+  queue_wait_ms: number | null
+  request_duration_ms: number | null
+  total_duration_ms: number | null
+  finish_reason: string | null
+  error_type: string | null
+  timeout_ms: number | null
+  max_tokens: number | null
+  thinking_enabled: number | null
+  response_format: string | null
+  provider_fallback_json: string | null
   created_at: string
 }
 
@@ -60,7 +84,7 @@ export async function trackModelCallUsage<T>(
     const requestFinishedAt = new Date().toISOString()
     await persistSafely(
       persist,
-      buildUsageRecord(metadata, requestStartedAt, requestFinishedAt, '', undefined)
+      buildUsageRecord(metadata, requestStartedAt, requestFinishedAt, '', undefined, extractTelemetryFromError(error))
     )
     throw error
   }
@@ -73,7 +97,8 @@ export async function trackModelCallUsage<T>(
       requestStartedAt,
       requestFinishedAt,
       extractOutput(result),
-      extractUsage(result)
+      extractUsage(result),
+      extractTelemetryFromResult(result)
     )
   )
 
@@ -85,7 +110,8 @@ function buildUsageRecord(
   requestStartedAt: string,
   requestFinishedAt: string,
   outputText: unknown,
-  usage: ProviderUsage | undefined
+  usage: ProviderUsage | undefined,
+  telemetry: ProviderTelemetry | undefined
 ): ModelCallUsageRecordInput {
   const estimatedInputTokens = estimateTokens(metadata.inputText)
   const estimatedOutputTokens = estimateTokens(outputText)
@@ -116,6 +142,16 @@ function buildUsageRecord(
     pricing_source: usage ? 'provider_usage' : cost.pricingSource,
     request_started_at: requestStartedAt,
     request_finished_at: requestFinishedAt,
+    queue_wait_ms: telemetry?.queueWaitMs ?? null,
+    request_duration_ms: telemetry?.requestDurationMs ?? null,
+    total_duration_ms: telemetry?.totalDurationMs ?? null,
+    finish_reason: telemetry?.finishReason ?? null,
+    error_type: telemetry?.errorType ?? null,
+    timeout_ms: telemetry?.timeoutMs ?? null,
+    max_tokens: telemetry?.maxTokens ?? null,
+    thinking_enabled: telemetry?.thinkingEnabled === undefined ? null : telemetry.thinkingEnabled ? 1 : 0,
+    response_format: telemetry?.responseFormat ?? null,
+    provider_fallback_json: serializeTelemetryFallback(telemetry?.fallback),
     created_at: new Date().toISOString()
   }
 }
@@ -131,4 +167,21 @@ async function persistSafely(persist: PersistUsage, record: ModelCallUsageRecord
 function defaultUsageExtractor<T>(result: T): ProviderUsage | undefined {
   const maybe = result as { usage?: ProviderUsage }
   return maybe?.usage
+}
+
+function extractTelemetryFromResult<T>(result: T): ProviderTelemetry | undefined {
+  return (result as { telemetry?: ProviderTelemetry })?.telemetry
+}
+
+function extractTelemetryFromError(error: unknown): ProviderTelemetry | undefined {
+  return (error as { providerTelemetry?: ProviderTelemetry })?.providerTelemetry
+}
+
+function serializeTelemetryFallback(fallback: unknown): string | null {
+  if (!fallback) return null
+  try {
+    return sanitizeErrorMessage(JSON.stringify(fallback))
+  } catch {
+    return '[unserializable telemetry fallback]'
+  }
 }

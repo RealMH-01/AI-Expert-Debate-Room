@@ -1,7 +1,7 @@
 import { getProviderConfig } from '../providerSettings'
 import { requestQueue } from '../requestQueue'
 import type { ProviderRequest, ProviderResponse } from '../types'
-import { joinUrl, sanitizeErrorMessage } from '../types'
+import { joinUrl, mapHttpStatusToErrorType, sanitizeErrorMessage } from '../types'
 import { createCombinedAbortSignal, DebateAbortError, isDebateAbortError } from '../abort'
 import { BaseAdapter } from './BaseAdapter'
 
@@ -55,13 +55,20 @@ export class OpenAIAdapter extends BaseAdapter {
   }
 
   protected async send(request: ProviderRequest): Promise<ProviderResponse> {
-    return requestQueue.enqueue('openai', async () => {
-      const config = getProviderConfig('openai')
-      if (!config?.apiKey) throw new Error('Provider "openai" is missing API Key.')
-      if (!config.enabled) throw new Error('Provider "openai" is disabled.')
+    const config = getProviderConfig('openai')
+    if (!config?.apiKey) throw new Error('Provider "openai" is missing API Key.')
+    if (!config.enabled) throw new Error('Provider "openai" is disabled.')
+    const timeoutMs = config.timeout || 60000
+    const totalStartedAt = Date.now()
 
+    return requestQueue.enqueue('openai', async () => {
+      const requestStartedAt = Date.now()
       const endpoint = joinUrl(config.baseUrl || 'https://api.openai.com/v1', 'responses')
-      const abort = createCombinedAbortSignal(request.signal, config.timeout || 60000)
+      const abort = createCombinedAbortSignal(request.signal, timeoutMs)
+      request.telemetry = {
+        ...request.telemetry,
+        timeoutMs
+      }
 
       try {
         const response = await fetch(endpoint, {
@@ -75,22 +82,75 @@ export class OpenAIAdapter extends BaseAdapter {
           signal: abort.signal
         })
 
+        const requestDurationMs = Date.now() - requestStartedAt
         if (!response.ok) {
-          throw new Error(sanitizeErrorMessage(await response.text().catch(() => response.statusText)))
+          const errorType = mapHttpStatusToErrorType(response.status)
+          request.telemetry = {
+            ...request.telemetry,
+            requestDurationMs,
+            totalDurationMs: Date.now() - totalStartedAt,
+            errorType
+          }
+          throw new Error(`${errorType}: ${sanitizeErrorMessage(await response.text().catch(() => response.statusText))}`)
         }
-        return parseOpenAIResponsesResponse(await response.json(), this.model)
+        const parsed = parseOpenAIResponsesResponse(await response.json(), this.model)
+        request.telemetry = {
+          ...request.telemetry,
+          requestDurationMs,
+          totalDurationMs: Date.now() - totalStartedAt,
+          finishReason: parsed.finishReason
+        }
+        return { ...parsed, telemetry: request.telemetry }
       } catch (error) {
-        if (isDebateAbortError(error)) throw error
-        if (error instanceof Error && error.name === 'AbortError') {
-          if (abort.getAbortReason() === 'external') throw new DebateAbortError()
-          throw new Error('network: request timeout')
+        const requestDurationMs = Date.now() - requestStartedAt
+        if (isDebateAbortError(error)) {
+          attachTelemetryToError(error, request.telemetry)
+          throw error
         }
-        throw error instanceof Error
+        if (error instanceof Error && error.name === 'AbortError') {
+          if (abort.getAbortReason() === 'external') {
+            const debateAbort = new DebateAbortError()
+            attachTelemetryToError(debateAbort, request.telemetry)
+            throw debateAbort
+          }
+          request.telemetry = {
+            ...request.telemetry,
+            requestDurationMs,
+            totalDurationMs: Date.now() - totalStartedAt,
+            errorType: 'network_timeout'
+          }
+          const timeoutError = new Error('network: request timeout')
+          attachTelemetryToError(timeoutError, request.telemetry)
+          throw timeoutError
+        }
+        request.telemetry = {
+          ...request.telemetry,
+          requestDurationMs,
+          totalDurationMs: Date.now() - totalStartedAt,
+          errorType: 'provider_error'
+        }
+        const providerError = error instanceof Error
           ? new Error(sanitizeErrorMessage(error.message))
           : new Error('unknown: provider request failed')
+        attachTelemetryToError(providerError, request.telemetry)
+        throw providerError
       } finally {
         abort.cleanup()
       }
+    }, {
+      maxConcurrency: config.maxConcurrency,
+      onStart: ({ queueWaitMs }) => {
+        request.telemetry = {
+          ...request.telemetry,
+          queueWaitMs
+        }
+      }
     })
+  }
+}
+
+function attachTelemetryToError(error: unknown, telemetry: ProviderRequest['telemetry']): void {
+  if (error && typeof error === 'object') {
+    ;(error as { providerTelemetry?: ProviderRequest['telemetry'] }).providerTelemetry = telemetry
   }
 }

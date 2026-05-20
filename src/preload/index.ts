@@ -160,6 +160,7 @@ const api = {
     baseUrl?: string
     defaultHeaders?: Record<string, string>
     timeout?: number
+    maxConcurrency?: number
     enabled?: boolean
     allowUnverifiedModels?: boolean
   }) => ipcRenderer.invoke('provider:save-config', params),

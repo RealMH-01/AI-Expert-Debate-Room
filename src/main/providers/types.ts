@@ -23,6 +23,22 @@ export type ProviderRequest = {
     preserve?: boolean
   }
   tools?: ToolDefinition[]
+  telemetry?: ProviderRequestTelemetry
+}
+
+export type ProviderRequestTelemetry = {
+  provider?: string
+  model?: string
+  queueWaitMs?: number
+  requestDurationMs?: number
+  totalDurationMs?: number
+  finishReason?: string
+  errorType?: string
+  timeoutMs?: number
+  maxTokens?: number
+  thinkingEnabled?: boolean
+  responseFormat?: 'text' | 'json_object'
+  fallback?: unknown
 }
 
 export type ProviderResponse = {
@@ -39,6 +55,7 @@ export type ProviderResponse = {
   providerId: ProviderId
   model: string
   finishReason?: string
+  telemetry?: ProviderRequestTelemetry
 }
 
 export type ProviderErrorType =
@@ -74,7 +91,7 @@ export function sanitizeErrorMessage(message: string): string {
   return message
     .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer ****')
     .replace(/(sk|sk-ant|sk-or|sk-proj|sk-live)-[A-Za-z0-9_-]{8,}/gi, '$1-****')
-    .replace(/(api[_-]?key|x-api-key|x-goog-api-key|authorization|token|secret|auth)(["'\s:=]+)(["']?)[^"',\s}]+/gi, '$1$2$3****')
+    .replace(/(api[\s_-]?key|x-api-key|x-goog-api-key|authorization|token|secret|auth)(["'\s:=]+)(["']?)[^"',\s}]+/gi, '$1$2$3****')
     .slice(0, 800)
 }
 

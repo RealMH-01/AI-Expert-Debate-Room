@@ -97,7 +97,7 @@ export abstract class BaseAdapter implements DebateModelProvider {
     if (jsonMatch) {
       rawJson = jsonMatch[1].trim()
     }
-    return { rawJson, usage: output.usage }
+    return { rawJson, usage: output.usage, telemetry: output.telemetry }
   }
 
   protected async callMessages(
@@ -118,7 +118,14 @@ export abstract class BaseAdapter implements DebateModelProvider {
       temperature: 0.7,
       maxTokens: DEFAULT_OUTPUT_TOKENS_BY_PHASE[options.phase],
       responseFormat: options.responseFormat ?? 'text',
-      thinking: { enabled: this.thinkingEnabled, effort: this.thinkingEnabled ? 'medium' : 'none' }
+      thinking: { enabled: this.thinkingEnabled, effort: this.thinkingEnabled ? 'medium' : 'none' },
+      telemetry: {
+        provider: this.providerId,
+        model: this.model,
+        maxTokens: DEFAULT_OUTPUT_TOKENS_BY_PHASE[options.phase],
+        thinkingEnabled: this.thinkingEnabled,
+        responseFormat: options.responseFormat ?? 'text'
+      }
     }
     let providerFallback: DebateGenerateOutput['providerFallback'] | undefined
     let response: ProviderResponse
@@ -135,17 +142,36 @@ export abstract class BaseAdapter implements DebateModelProvider {
             reason
           }
         }
-        response = await this.send({
+        const fallbackRequest: ProviderRequest = {
           ...request,
           responseFormat: 'text'
-        })
+        }
+        fallbackRequest.telemetry = {
+          ...request.telemetry,
+          responseFormat: 'text',
+          fallback: providerFallback
+        }
+        response = await this.send(fallbackRequest)
+        request.telemetry = fallbackRequest.telemetry
       } else {
+        attachTelemetryToError(error, request.telemetry)
         throw error
       }
     }
+    request.telemetry = {
+      ...request.telemetry,
+      ...response.telemetry,
+      finishReason: response.finishReason,
+      fallback: providerFallback ?? request.telemetry?.fallback
+    }
     const finishError = getFinishReasonError(response)
     if (finishError) {
-      throw new Error(finishError)
+      const error = new Error(finishError)
+      attachTelemetryToError(error, {
+        ...request.telemetry,
+        errorType: finishError.split(':')[0]
+      })
+      throw error
     }
 
     return {
@@ -157,7 +183,8 @@ export abstract class BaseAdapter implements DebateModelProvider {
             totalTokens: response.usage.totalTokens ?? 0
           }
         : undefined,
-      providerFallback
+      providerFallback,
+      telemetry: request.telemetry
     }
   }
 
@@ -170,6 +197,12 @@ export abstract class BaseAdapter implements DebateModelProvider {
   }
 
   protected abstract send(request: ProviderRequest): Promise<ProviderResponse>
+}
+
+function attachTelemetryToError(error: unknown, telemetry: ProviderRequest['telemetry']): void {
+  if (error && typeof error === 'object') {
+    ;(error as { providerTelemetry?: ProviderRequest['telemetry'] }).providerTelemetry = telemetry
+  }
 }
 
 function isJsonObjectUnsupportedError(error: unknown): boolean {

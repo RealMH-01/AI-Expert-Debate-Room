@@ -9,6 +9,7 @@ interface ProviderConfigSafe {
   maskedKey?: string
   baseUrl: string
   timeout: number
+  maxConcurrency: number
   enabled: boolean
   allowUnverifiedModels: boolean
   lastTestStatus?: 'success' | 'failure'
@@ -35,6 +36,7 @@ const ProviderSettings: React.FC = () => {
     apiKey: '',
     baseUrl: '',
     timeout: 60000,
+    maxConcurrency: 2,
     enabled: true,
     allowUnverifiedModels: false,
     testModel: ''
@@ -67,6 +69,7 @@ const ProviderSettings: React.FC = () => {
       apiKey: '',
       baseUrl: config?.baseUrl || providerInfo?.models[0]?.defaultBaseUrl || '',
       timeout: config?.timeout ?? 60000,
+      maxConcurrency: config?.maxConcurrency ?? (selectedProvider === 'bigmodel' ? 1 : 2),
       enabled: config?.enabled ?? true,
       allowUnverifiedModels: config?.allowUnverifiedModels ?? selectedProvider === 'openai_compatible',
       testModel: config?.lastTestedModel ?? ''
@@ -84,6 +87,7 @@ const ProviderSettings: React.FC = () => {
         apiKey: formData.apiKey,
         baseUrl: formData.baseUrl || undefined,
         timeout: formData.timeout,
+        maxConcurrency: formData.maxConcurrency,
         enabled: formData.enabled,
         allowUnverifiedModels: formData.allowUnverifiedModels
       })
@@ -205,6 +209,19 @@ const ProviderSettings: React.FC = () => {
             max={300000}
             onChange={(event) =>
               setFormData((prev) => ({ ...prev, timeout: Number(event.target.value) || 60000 }))
+            }
+          />
+        </div>
+        <div className="form-group flex-1">
+          <label className="form-label">Max concurrency</label>
+          <input
+            type="number"
+            className="form-input"
+            value={formData.maxConcurrency}
+            min={1}
+            max={10}
+            onChange={(event) =>
+              setFormData((prev) => ({ ...prev, maxConcurrency: Number(event.target.value) || 1 }))
             }
           />
         </div>

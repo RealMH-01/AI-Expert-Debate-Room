@@ -60,7 +60,7 @@ const provider = {
     providerInputs.push(input)
     return Promise.resolve({ content: 'opening' })
   }),
-  generateExpertInitialAnswer: vi.fn((input: { phase: DebatePhase; attachments?: DebateAttachmentContext[] }) => {
+  generateExpertInitialAnswer: vi.fn((input: { phase: DebatePhase; attachments?: DebateAttachmentContext[]; agent?: Agent }) => {
     providerInputs.push(input)
     return Promise.resolve({ content: 'initial answer' })
   }),
@@ -223,6 +223,7 @@ vi.mock('../src/main/memory/projectMemory', () => ({ ensureMemorySuggestionsForM
 
 describe('startDebate attachments', () => {
   beforeEach(() => {
+    vi.resetModules()
     sessions.clear()
     messages.length = 0
     insertedAttachments.length = 0
@@ -288,10 +289,15 @@ describe('startDebate attachments', () => {
       claims: [{ claim_text: 'Recovered claim' }],
       attacks: []
     })
-    provider.generateExpertInitialAnswer
-      .mockResolvedValueOnce({ content: invalidJson })
-      .mockResolvedValueOnce({ content: recoveredJson })
-      .mockResolvedValue({ content: JSON.stringify({ message: 'Other answer', claims: [], attacks: [] }) })
+    const attemptsByAgent = new Map<string, number>()
+    provider.generateExpertInitialAnswer.mockImplementation((input) => {
+      const agentId = input.agent?.id ?? 'unknown'
+      const attempts = attemptsByAgent.get(agentId) ?? 0
+      attemptsByAgent.set(agentId, attempts + 1)
+      if (agentId === 'expert-1' && attempts === 0) return Promise.resolve({ content: invalidJson })
+      if (agentId === 'expert-1') return Promise.resolve({ content: recoveredJson })
+      return Promise.resolve({ content: JSON.stringify({ message: 'Other answer', claims: [], attacks: [] }) })
+    })
 
     const { startDebate } = await import('../src/main/debate/debateEngine')
     const callbacks = {
@@ -323,10 +329,15 @@ describe('startDebate attachments', () => {
   it('stores retry metadata and raw head/tail when expert initial retry still fails', async () => {
     const firstInvalid = '{"message":"first" "claims":[],"attacks":[]}'
     const secondInvalid = '{"message":"second" "claims":[],"attacks":[]}'
-    provider.generateExpertInitialAnswer
-      .mockResolvedValueOnce({ content: firstInvalid })
-      .mockResolvedValueOnce({ content: secondInvalid })
-      .mockResolvedValue({ content: JSON.stringify({ message: 'Other answer', claims: [], attacks: [] }) })
+    const attemptsByAgent = new Map<string, number>()
+    provider.generateExpertInitialAnswer.mockImplementation((input) => {
+      const agentId = input.agent?.id ?? 'unknown'
+      const attempts = attemptsByAgent.get(agentId) ?? 0
+      attemptsByAgent.set(agentId, attempts + 1)
+      if (agentId === 'expert-1' && attempts === 0) return Promise.resolve({ content: firstInvalid })
+      if (agentId === 'expert-1') return Promise.resolve({ content: secondInvalid })
+      return Promise.resolve({ content: JSON.stringify({ message: 'Other answer', claims: [], attacks: [] }) })
+    })
 
     const { startDebate } = await import('../src/main/debate/debateEngine')
     const callbacks = {

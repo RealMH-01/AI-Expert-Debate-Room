@@ -61,6 +61,7 @@ export function registerProviderIpc(): void {
         baseUrl?: string
         defaultHeaders?: Record<string, string>
         timeout?: number
+        maxConcurrency?: number
         enabled?: boolean
         allowUnverifiedModels?: boolean
       }
@@ -73,6 +74,7 @@ export function registerProviderIpc(): void {
           baseUrl: params.baseUrl || '',
           defaultHeaders: params.defaultHeaders || {},
           timeout: params.timeout || 60000,
+          maxConcurrency: params.maxConcurrency,
           enabled: params.enabled !== false,
           allowUnverifiedModels: params.allowUnverifiedModels === true
         })

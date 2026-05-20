@@ -1,36 +1,54 @@
 /**
  * Request Queue - 请求队列
  *
- * 按 providerId/baseUrl 维度限制并发，避免多个专家同时打爆同一个 provider。
- * MockProvider 不受此队列限制。
- *
- * 设计：
- * - 每个 provider 独立队列
- * - 默认最大并发 1（串行）
- * - 不会阻塞其他 provider 的请求
+ * Limits concurrency per providerId/baseUrl so multiple experts do not
+ * overload the same provider. MockProvider bypasses the queue.
  */
 
 type QueueTask<T> = {
   execute: () => Promise<T>
   resolve: (value: T) => void
   reject: (reason: unknown) => void
+  enqueuedAt: number
+  onStart?: (queueWaitMs: number) => void
 }
 
-class ProviderQueue {
+export type QueueTelemetry = {
+  queueWaitMs: number
+}
+
+export type QueueOptions = {
+  maxConcurrency?: number
+  onStart?: (telemetry: QueueTelemetry) => void
+}
+
+export function getDefaultProviderConcurrency(providerId: string): number {
+  if (providerId === 'bigmodel') return 1
+  return 2
+}
+
+export class ProviderQueue {
   private queue: QueueTask<unknown>[] = []
   private running = 0
   private maxConcurrency: number
 
   constructor(maxConcurrency: number = 1) {
-    this.maxConcurrency = maxConcurrency
+    this.maxConcurrency = normalizeConcurrency(maxConcurrency)
   }
 
-  async enqueue<T>(task: () => Promise<T>): Promise<T> {
+  setMaxConcurrency(maxConcurrency: number): void {
+    this.maxConcurrency = normalizeConcurrency(maxConcurrency)
+    this.processNext()
+  }
+
+  async enqueue<T>(task: () => Promise<T>, options: { onStart?: (queueWaitMs: number) => void } = {}): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       this.queue.push({
         execute: task as () => Promise<unknown>,
         resolve: resolve as (value: unknown) => void,
-        reject
+        reject,
+        enqueuedAt: Date.now(),
+        onStart: options.onStart
       })
       this.processNext()
     })
@@ -43,6 +61,7 @@ class ProviderQueue {
 
     const task = this.queue.shift()!
     this.running++
+    task.onStart?.(Date.now() - task.enqueuedAt)
 
     try {
       const result = await task.execute()
@@ -64,49 +83,35 @@ class ProviderQueue {
   }
 }
 
-/**
- * 全局请求队列管理器
- * 按 providerId 维度管理队列
- */
 class RequestQueueManager {
   private queues = new Map<string, ProviderQueue>()
-  private defaultConcurrency = 1
 
-  /**
-   * 获取或创建指定 provider 的队列
-   */
-  private getQueue(providerId: string): ProviderQueue {
+  private getQueue(providerId: string, maxConcurrency?: number): ProviderQueue {
+    const concurrency = maxConcurrency ?? getDefaultProviderConcurrency(providerId)
     if (!this.queues.has(providerId)) {
-      this.queues.set(providerId, new ProviderQueue(this.defaultConcurrency))
+      this.queues.set(providerId, new ProviderQueue(concurrency))
+    } else if (maxConcurrency !== undefined) {
+      this.queues.get(providerId)!.setMaxConcurrency(concurrency)
     }
     return this.queues.get(providerId)!
   }
 
-  /**
-   * 向指定 provider 的队列中添加请求
-   * Mock provider 不走队列，直接执行
-   */
-  async enqueue<T>(providerId: string, task: () => Promise<T>): Promise<T> {
+  async enqueue<T>(providerId: string, task: () => Promise<T>, options: QueueOptions = {}): Promise<T> {
     if (providerId === 'mock') {
-      // MockProvider 不需要限流，直接执行
+      options.onStart?.({ queueWaitMs: 0 })
       return task()
     }
-    const queue = this.getQueue(providerId)
-    return queue.enqueue(task)
+    const queue = this.getQueue(providerId, options.maxConcurrency)
+    return queue.enqueue(task, {
+      onStart: (queueWaitMs) => options.onStart?.({ queueWaitMs })
+    })
   }
 
-  /**
-   * 设置指定 provider 的最大并发数
-   */
   setConcurrency(providerId: string, maxConcurrency: number): void {
     const queue = this.getQueue(providerId)
-    // 重新创建队列（简单实现）
-    this.queues.set(providerId, new ProviderQueue(maxConcurrency))
+    queue.setMaxConcurrency(maxConcurrency)
   }
 
-  /**
-   * 获取状态信息
-   */
   getStatus(): Record<string, { pending: number; running: number }> {
     const status: Record<string, { pending: number; running: number }> = {}
     for (const [id, queue] of this.queues) {
@@ -119,5 +124,9 @@ class RequestQueueManager {
   }
 }
 
-/** 全局单例 */
 export const requestQueue = new RequestQueueManager()
+
+function normalizeConcurrency(maxConcurrency: number): number {
+  if (!Number.isFinite(maxConcurrency)) return 1
+  return Math.max(1, Math.min(10, Math.floor(maxConcurrency)))
+}

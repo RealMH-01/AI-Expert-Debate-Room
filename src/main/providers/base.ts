@@ -11,6 +11,7 @@
  */
 
 import type { Agent, DebateAttachmentContext, DebatePhase, RulesConfig } from '../../shared/types'
+import type { ProviderRequestTelemetry } from './types'
 
 /**
  * 投票生成输入
@@ -39,6 +40,7 @@ export interface VoteGenerateOutput {
     completionTokens: number
     totalTokens: number
   }
+  telemetry?: ProviderRequestTelemetry
 }
 
 /**
@@ -96,6 +98,7 @@ export interface DebateGenerateOutput {
     completionTokens: number
     totalTokens: number
   }
+  telemetry?: ProviderRequestTelemetry
   providerFallback?: {
     responseFormat?: {
       from: 'json_object'

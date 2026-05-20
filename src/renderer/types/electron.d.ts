@@ -145,6 +145,7 @@ export interface ElectronAPI {
     maskedApiKey: string
     baseUrl: string
     timeout: number
+    maxConcurrency: number
     enabled: boolean
     allowUnverifiedModels: boolean
     lastTestStatus?: 'success' | 'failure'
@@ -158,6 +159,7 @@ export interface ElectronAPI {
     maskedApiKey: string
     baseUrl: string
     timeout: number
+    maxConcurrency: number
     enabled: boolean
     allowUnverifiedModels: boolean
     lastTestStatus?: 'success' | 'failure'
@@ -171,6 +173,7 @@ export interface ElectronAPI {
     baseUrl?: string
     defaultHeaders?: Record<string, string>
     timeout?: number
+    maxConcurrency?: number
     enabled?: boolean
     allowUnverifiedModels?: boolean
   }) => Promise<IpcResponse<unknown>>

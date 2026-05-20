@@ -303,6 +303,22 @@ CREATE INDEX IF NOT EXISTS idx_attachments_session_id ON attachments(session_id)
     sql: `
 ALTER TABLE sessions ADD COLUMN ended_at TEXT;
 `
+  },
+  {
+    version: 10,
+    name: 'add model call telemetry fields',
+    sql: `
+ALTER TABLE model_call_usage ADD COLUMN queue_wait_ms INTEGER;
+ALTER TABLE model_call_usage ADD COLUMN request_duration_ms INTEGER;
+ALTER TABLE model_call_usage ADD COLUMN total_duration_ms INTEGER;
+ALTER TABLE model_call_usage ADD COLUMN finish_reason TEXT;
+ALTER TABLE model_call_usage ADD COLUMN error_type TEXT;
+ALTER TABLE model_call_usage ADD COLUMN timeout_ms INTEGER;
+ALTER TABLE model_call_usage ADD COLUMN max_tokens INTEGER;
+ALTER TABLE model_call_usage ADD COLUMN thinking_enabled INTEGER;
+ALTER TABLE model_call_usage ADD COLUMN response_format TEXT;
+ALTER TABLE model_call_usage ADD COLUMN provider_fallback_json TEXT;
+`
   }
 ]
 

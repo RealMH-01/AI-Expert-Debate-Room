@@ -57,13 +57,16 @@ import type { SingleVote, SettlementResult } from '../voting/voteTypes'
 import {
   attachStructuredOutputRetryMetadata,
   normalizeProviderDebateOutput,
-  type NormalizedProviderDebateOutput,
-  type StructuredOutputErrorType
+  type NormalizedProviderDebateOutput
 } from '../claims/claimTracker'
 import { buildSessionContextSummary } from '../context/contextCompressor'
 import { trackModelCallUsage } from '../cost/usageTracker'
 import { ensureMemorySuggestionsForMeeting } from '../memory/projectMemory'
 import { DebateAbortError, isDebateAbortError } from '../providers/abort'
+import {
+  classifyProviderFailure,
+  formatProviderFailureForUser
+} from '../providers/errorMessages'
 
 /**
  * 会议运行中的回调接口
@@ -506,12 +509,6 @@ async function generateNormalizedExpertOutputWithRetry(params: {
   })
 }
 
-function classifyProviderFailure(errorMsg: string): StructuredOutputErrorType | 'provider_error' {
-  if (errorMsg.startsWith('output_truncated:')) return 'output_truncated'
-  if (errorMsg.startsWith('provider_incomplete:')) return 'provider_incomplete'
-  return 'provider_error'
-}
-
 function providerLabel(agent: Agent, provider: DebateModelProvider): string {
   return agent.provider || provider.name || 'unknown'
 }
@@ -694,38 +691,61 @@ async function runInitialAnswers(
   // 避免第 1 位专家的回答污染第 2 位专家的生成输入。
   const initialVisibleTranscript = [...transcript]
 
-  for (const expert of experts) {
-    throwIfAborted(signal)
-    const otherExperts = experts.filter((e) => e.id !== expert.id)
+  type InitialAnswerResult =
+    | { expert: Agent; normalized: NormalizedProviderDebateOutput }
+    | { expert: Agent; errorMsg: string; displayError: string }
+  const initialTasks: Array<Promise<InitialAnswerResult>> = experts.map(async (expert) => {
+      throwIfAborted(signal)
+      const otherExperts = experts.filter((e) => e.id !== expert.id)
 
-    const input: DebateGenerateInput = {
-      role: 'expert',
-      phase,
-      agent: expert,
-      userQuestion,
-      roundIndex: 0,
-      visibleTranscript: initialVisibleTranscript,
-      otherExperts,
-      rules,
-      roomName,
-      signal,
-      attachments
+      const input: DebateGenerateInput = {
+        role: 'expert',
+        phase,
+        agent: expert,
+        userQuestion,
+        roundIndex: 0,
+        visibleTranscript: initialVisibleTranscript,
+        otherExperts,
+        rules,
+        roomName,
+        signal,
+        attachments
+      }
+
+      // 使用该专家自身配置的 Provider
+      const expertProvider = getProviderForAgent(expert)
+
+      try {
+        const normalized = await generateNormalizedExpertOutputWithRetry({
+          sessionId: session.id,
+          phase,
+          roundIndex: 0,
+          expert,
+          provider: expertProvider,
+          input,
+          generate: (nextInput) => expertProvider.generateExpertInitialAnswer(nextInput)
+        })
+
+        return { expert, normalized }
+      } catch (error: unknown) {
+        if (isDebateAbortError(error)) throw error
+        const errorMsg = error instanceof Error ? error.message : '未知错误'
+        const providerId = providerLabel(expert, expertProvider)
+        return { expert, errorMsg, displayError: formatProviderFailureForUser(errorMsg, providerId) }
+      }
+    })
+  const initialResults = await Promise.allSettled(initialTasks)
+
+  for (const result of initialResults) {
+    throwIfAborted(signal)
+    if (result.status === 'rejected') {
+      if (isDebateAbortError(result.reason)) throw result.reason
+      throw result.reason
     }
 
-    // 使用该专家自身配置的 Provider
-    const expertProvider = getProviderForAgent(expert)
-
-    try {
-      const normalized = await generateNormalizedExpertOutputWithRetry({
-        sessionId: session.id,
-        phase,
-        roundIndex: 0,
-        expert,
-        provider: expertProvider,
-        input,
-        generate: (nextInput) => expertProvider.generateExpertInitialAnswer(nextInput)
-      })
-
+    const { expert } = result.value
+    if ('normalized' in result.value) {
+      const { normalized } = result.value
       const message = messageRepo.insertMessage({
         sessionId: session.id,
         roundIndex: 0,
@@ -749,10 +769,9 @@ async function runInitialAnswers(
       })
 
       callbacks.onMessage(message)
-    } catch (error: unknown) {
-      if (isDebateAbortError(error)) throw error
+    } else {
       // 单个专家失败：记录失败消息，继续其他专家
-      const errorMsg = error instanceof Error ? error.message : '未知错误'
+      const { errorMsg, displayError } = result.value
       console.error(`[DebateEngine] 专家 "${expert.name}" 首轮回答失败:`, errorMsg)
 
       const failMessage = messageRepo.insertMessage({
@@ -762,11 +781,11 @@ async function runInitialAnswers(
         speakerId: null,
         speakerName: '系统',
         speakerRole: 'system',
-        content: `[发言失败] ${expert.name} 首轮回答生成失败: ${errorMsg}`,
+        content: `[发言失败] ${expert.name} 首轮回答生成失败: ${displayError}`,
         structuredJson: JSON.stringify({
           type: 'expert_call_failed',
           agentId: expert.id,
-          error: errorMsg,
+          error: displayError,
           errorType: classifyProviderFailure(errorMsg)
         })
       })
@@ -1222,12 +1241,12 @@ async function runVotingPhase(
   let hasInvalidVotes = false
 
   // 匿名同时投票：每个专家独立生成投票，不传入其他专家的投票结果
-  for (const voter of aliveExperts) {
-    throwIfAborted(signal)
-    const voterProvider = getProviderForAgent(voter)
-
-    let voteOutput: { rawJson: string }
-    try {
+  type VoteResult =
+    | { voter: Agent; voteOutput: VoteGenerateOutput }
+    | { voter: Agent; errorMsg: string; displayError: string }
+  const voteTasks: Array<Promise<VoteResult>> = aliveExperts.map(async (voter) => {
+      throwIfAborted(signal)
+      const voterProvider = getProviderForAgent(voter)
       const voteInput = {
         voter,
         aliveExperts,
@@ -1235,18 +1254,37 @@ async function runVotingPhase(
         userQuestion,
         signal
       }
-      voteOutput = await trackVoteCall(
-        session.id,
-        totalRounds,
-        voter,
-        voterProvider,
-        voteInput,
-        () => voterProvider.generateExpertVote(voteInput)
-      )
-    } catch (error: unknown) {
-      if (isDebateAbortError(error)) throw error
+
+      try {
+        const voteOutput = await trackVoteCall(
+          session.id,
+          totalRounds,
+          voter,
+          voterProvider,
+          voteInput,
+          () => voterProvider.generateExpertVote(voteInput)
+        )
+        return { voter, voteOutput }
+      } catch (error: unknown) {
+        if (isDebateAbortError(error)) throw error
+        const errorMsg = error instanceof Error ? error.message : '未知错误'
+        const providerId = providerLabel(voter, voterProvider)
+        return { voter, errorMsg, displayError: formatProviderFailureForUser(errorMsg, providerId) }
+      }
+    })
+  const voteResults = await Promise.allSettled(voteTasks)
+
+  for (const result of voteResults) {
+    throwIfAborted(signal)
+    if (result.status === 'rejected') {
+      if (isDebateAbortError(result.reason)) throw result.reason
+      throw result.reason
+    }
+
+    const { voter } = result.value
+    if (!('voteOutput' in result.value)) {
       // 投票生成失败：记录系统消息，跳过此专家
-      const errorMsg = error instanceof Error ? error.message : '未知错误'
+      const { errorMsg, displayError } = result.value
       console.error(`[DebateEngine] 专家 "${voter.name}" 投票生成失败:`, errorMsg)
       hasInvalidVotes = true
       const failMsg = messageRepo.insertMessage({
@@ -1256,12 +1294,19 @@ async function runVotingPhase(
         speakerId: null,
         speakerName: '系统',
         speakerRole: 'system',
-        content: `[投票失败] ${voter.name} 的投票生成过程出错: ${errorMsg}。该专家本轮投票作废。`,
-        structuredJson: JSON.stringify({ type: 'vote_generate_failed', voterId: voter.id, error: errorMsg })
+        content: `[投票失败] ${voter.name} 的投票生成过程出错: ${displayError}。该专家本轮投票作废。`,
+        structuredJson: JSON.stringify({
+          type: 'vote_generate_failed',
+          voterId: voter.id,
+          error: displayError,
+          errorType: classifyProviderFailure(errorMsg)
+        })
       })
       callbacks.onMessage(failMsg)
       continue
     }
+
+    const { voteOutput } = result.value
 
     // 使用 VoteValidator 进行客观校验
     const validationResult = validateBallot(voteOutput.rawJson, aliveExpertIds)

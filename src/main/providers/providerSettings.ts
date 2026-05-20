@@ -1,6 +1,7 @@
 import type { ProviderId } from '../../shared/types'
 import { getProviderDefinition } from '../../shared/providers/modelRegistry'
 import { getDatabase } from '../db/sqlite'
+import { getDefaultProviderConcurrency } from './requestQueue'
 
 export interface ProviderConfig {
   providerId: ProviderId | string
@@ -8,6 +9,7 @@ export interface ProviderConfig {
   baseUrl: string
   defaultHeaders: Record<string, string>
   timeout: number
+  maxConcurrency: number
   enabled: boolean
   allowUnverifiedModels: boolean
   lastTestStatus?: 'success' | 'failure'
@@ -24,6 +26,7 @@ export interface ProviderConfigSafe {
   maskedApiKey: string
   baseUrl: string
   timeout: number
+  maxConcurrency: number
   enabled: boolean
   allowUnverifiedModels: boolean
   lastTestStatus?: 'success' | 'failure'
@@ -100,6 +103,7 @@ export function sanitizeProviderConfigForRenderer(config: ProviderConfig): Provi
     maskedApiKey: maskApiKey(config.apiKey),
     baseUrl: config.baseUrl,
     timeout: config.timeout,
+    maxConcurrency: config.maxConcurrency,
     enabled: config.enabled,
     allowUnverifiedModels: config.allowUnverifiedModels,
     lastTestStatus: config.lastTestStatus,
@@ -117,6 +121,7 @@ function normalizeConfig(config: Partial<ProviderConfig> & { providerId: string 
     baseUrl: config.baseUrl ?? provider?.defaultBaseUrl ?? '',
     defaultHeaders: config.defaultHeaders ?? {},
     timeout: config.timeout ?? 60000,
+    maxConcurrency: config.maxConcurrency ?? getDefaultProviderConcurrency(config.providerId),
     enabled: config.enabled ?? true,
     allowUnverifiedModels: config.allowUnverifiedModels ?? provider?.allowUnverifiedModelsDefault ?? false,
     lastTestStatus: config.lastTestStatus,
