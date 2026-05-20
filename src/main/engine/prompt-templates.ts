@@ -185,6 +185,10 @@ export function buildVoteJsonExample(targets: PromptExpertInfo[]): string {
     throw new Error('buildVoteJsonExample requires at least one target expert')
   }
 
+  targets.forEach((target, index) => {
+    validatePromptExpertInfo(target, `targets[${index}]`)
+  })
+
   const votes = targets.map((target) => ({
     targetAgentId: target.agentId,
     score: 5,
@@ -347,6 +351,8 @@ export function buildDebateHpHint(expert: PromptExpertInfo): string {
  * 使用 JSON.stringify 包裹动态字段，降低特殊字符破坏格式的风险。
  */
 export function formatExpertForPrompt(expert: PromptExpertInfo): string {
+  validatePromptExpertInfo(expert, 'expert')
+
   const lines = [
     `agentId: ${JSON.stringify(expert.agentId)}`,
     `name: ${JSON.stringify(expert.name)}`
@@ -364,10 +370,6 @@ export function formatExpertForPrompt(expert: PromptExpertInfo): string {
     lines.push(`stance: ${JSON.stringify(expert.stance)}`)
   }
 
-  if (typeof expert.currentHp === 'number' && typeof expert.hpCap === 'number') {
-    lines.push(`hp: ${JSON.stringify(`${expert.currentHp}/${expert.hpCap}`)}`)
-  }
-
   if (typeof expert.prestige === 'number') {
     lines.push(`prestige: ${JSON.stringify(expert.prestige)}`)
   }
@@ -383,6 +385,8 @@ export function formatExpertForPrompt(expert: PromptExpertInfo): string {
  * 格式化投票目标专家信息。
  */
 export function formatTargetExpertForVote(expert: PromptExpertInfo): string {
+  validatePromptExpertInfo(expert, 'expert')
+
   return [
     `targetAgentId: ${JSON.stringify(expert.agentId)}`,
     `name: ${JSON.stringify(expert.name)}`,
@@ -402,17 +406,13 @@ export function formatTargetExpertForVote(expert: PromptExpertInfo): string {
 export function validateVotePromptInput(input: VotePromptInput): void {
   validateVotePromptExperts(input.voter, input.aliveExperts)
 
-  if (input.question.trim() === '') {
-    throw new Error('VotePromptInput.question must not be empty')
+  validateRequiredString(input.question, 'VotePromptInput.question')
+
+  if (!Number.isInteger(input.roundIndex) || input.roundIndex < 0) {
+    throw new Error('VotePromptInput.roundIndex must be a non-negative integer')
   }
 
-  if (input.roundIndex < 0) {
-    throw new Error('VotePromptInput.roundIndex must be >= 0')
-  }
-
-  if (input.roundDebateHistory.trim() === '') {
-    throw new Error('VotePromptInput.roundDebateHistory must not be empty')
-  }
+  validateRequiredString(input.roundDebateHistory, 'VotePromptInput.roundDebateHistory')
 }
 
 /**
@@ -422,13 +422,19 @@ export function validateVotePromptExperts(
   voter: PromptExpertInfo,
   aliveExperts: PromptExpertInfo[]
 ): void {
-  if (voter.agentId.trim() === '') {
-    throw new Error('voter.agentId must not be empty')
+  validatePromptExpertInfo(voter, 'voter')
+
+  if (!Array.isArray(aliveExperts)) {
+    throw new Error('aliveExperts must be an array')
   }
 
   if (aliveExperts.length < 2) {
     throw new Error('aliveExperts must contain at least 2 experts')
   }
+
+  aliveExperts.forEach((expert, index) => {
+    validatePromptExpertInfo(expert, `aliveExperts[${index}]`)
+  })
 
   const ids = aliveExperts.map((expert) => expert.agentId)
   const uniqueIds = new Set(ids)
@@ -451,9 +457,15 @@ export function validateVotePromptExperts(
  * 校验辩论 prompt 输入。
  */
 export function validateDebatePromptInput(input: DebatePromptInput): void {
-  if (input.speaker.agentId.trim() === '') {
-    throw new Error('speaker.agentId must not be empty')
+  validatePromptExpertInfo(input.speaker, 'speaker')
+
+  if (!Array.isArray(input.aliveExperts)) {
+    throw new Error('aliveExperts must be an array')
   }
+
+  input.aliveExperts.forEach((expert, index) => {
+    validatePromptExpertInfo(expert, `aliveExperts[${index}]`)
+  })
 
   if (!input.aliveExperts.some((expert) => expert.agentId === input.speaker.agentId)) {
     throw new Error('speaker.agentId must exist in aliveExperts')
@@ -464,19 +476,28 @@ export function validateDebatePromptInput(input: DebatePromptInput): void {
     throw new Error('aliveExperts contains duplicate agentId')
   }
 
-  if (input.question.trim() === '') {
-    throw new Error('DebatePromptInput.question must not be empty')
+  validateRequiredString(input.question, 'DebatePromptInput.question')
+
+  if (!Number.isInteger(input.roundIndex) || input.roundIndex < 0) {
+    throw new Error('DebatePromptInput.roundIndex must be a non-negative integer')
   }
 
-  if (input.roundIndex < 0) {
-    throw new Error('DebatePromptInput.roundIndex must be >= 0')
+  validateRequiredString(input.roundPhase, 'DebatePromptInput.roundPhase')
+
+  validateRequiredString(input.debateHistory, 'DebatePromptInput.debateHistory')
+}
+
+function validatePromptExpertInfo(expert: PromptExpertInfo, fieldName: string): void {
+  if (typeof expert !== 'object' || expert === null) {
+    throw new Error(`${fieldName} must be an object`)
   }
 
-  if (input.roundPhase.trim() === '') {
-    throw new Error('DebatePromptInput.roundPhase must not be empty')
-  }
+  validateRequiredString(expert.agentId, `${fieldName}.agentId`)
+  validateRequiredString(expert.name, `${fieldName}.name`)
+}
 
-  if (input.debateHistory.trim() === '') {
-    throw new Error('DebatePromptInput.debateHistory must not be empty')
+function validateRequiredString(value: unknown, fieldName: string): void {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new Error(`${fieldName} must be a non-empty string`)
   }
 }
