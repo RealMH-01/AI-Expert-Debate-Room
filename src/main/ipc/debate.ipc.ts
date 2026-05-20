@@ -124,14 +124,8 @@ export function registerDebateIpc(): void {
     IPC_CHANNELS.DEBATE_ABORT,
     async (_event, params: { roomId: string; sessionId?: string }) => {
       try {
-        const aborted = abortDebate(params.roomId)
-        if (!aborted) {
-          return { success: false, error: '当前会议室没有正在运行的辩论' }
-        }
-        return {
-          success: true,
-          data: { aborted: true, roomId: params.roomId, sessionId: params.sessionId }
-        }
+        const result = abortDebate(params.roomId)
+        return { success: true, data: { ...result, requestedSessionId: params.sessionId } }
       } catch (error: unknown) {
         return { success: false, error: (error as Error).message }
       }

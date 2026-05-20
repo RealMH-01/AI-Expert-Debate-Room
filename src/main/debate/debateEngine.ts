@@ -90,6 +90,26 @@ const runningSessions = new Map<string, RunningDebateInfo>()
 
 const USER_ABORT_MESSAGE =
   '用户已中止本次辩论。已保留中止前生成的内容，后续专家发言、投票、结算和总结不会继续执行。'
+const ORPHAN_ABORT_MESSAGE =
+  '检测到该辩论已无活动运行实例，已清理卡住的运行状态。已保留清理前生成的内容，可以重新开始讨论。'
+const STARTUP_STALE_ABORT_MESSAGE =
+  '应用启动时清理了上次未正常结束的辩论。已保留清理前生成的内容，可以重新开始讨论。'
+
+export interface AbortDebateResult {
+  success: boolean
+  aborted: boolean
+  roomId: string
+  sessionId?: string
+  repaired?: boolean
+  noop?: boolean
+  session?: Session
+}
+
+export interface StaleRunningRepairResult {
+  repairedCount: number
+  repairedSessionIds: string[]
+  sessions: Session[]
+}
 
 /**
  * 等待用户确认结算的会议信息
@@ -509,11 +529,16 @@ function throwIfAborted(signal: AbortSignal): void {
 
 function markSessionAborted(
   session: Session,
-  callbacks: DebateEngineCallbacks,
-  reason = USER_ABORT_MESSAGE
+  callbacks?: Pick<DebateEngineCallbacks, 'onMessage'>,
+  reason = USER_ABORT_MESSAGE,
+  messageContent = reason,
+  messageType = 'debate_aborted'
 ): Session {
   const currentSession = sessionRepo.getSessionById(session.id) ?? session
   if (currentSession.status === 'aborted') {
+    return currentSession
+  }
+  if (currentSession.status === 'finished' || currentSession.status === 'failed') {
     return currentSession
   }
 
@@ -524,10 +549,10 @@ function markSessionAborted(
     speakerId: null,
     speakerName: '系统',
     speakerRole: 'system',
-    content: USER_ABORT_MESSAGE,
-    structuredJson: JSON.stringify({ type: 'debate_aborted', reason: 'user' })
+    content: messageContent,
+    structuredJson: JSON.stringify({ type: messageType, reason })
   })
-  callbacks.onMessage(abortMessage)
+  callbacks?.onMessage(abortMessage)
 
   return sessionRepo.abortSession(session.id, reason) ?? currentSession
 }
@@ -988,11 +1013,35 @@ export function isDebateRunning(roomId: string): boolean {
 }
 
 /**
- * 中止某个会议室当前运行或等待结算的辩论
+ * 中止某个会议室当前运行或等待结算的辩论。
+ *
+ * 该方法同时承担 orphan running session 的收敛：如果内存中没有
+ * active run，但数据库仍有 running session，会将其标记为 aborted。
  */
-export function abortDebate(roomId: string): boolean {
+export function abortDebate(roomId: string): AbortDebateResult {
   const running = runningSessions.get(roomId)
-  if (!running) return false
+  if (!running) {
+    const orphanSession = sessionRepo.getRunningSession(roomId)
+    if (!orphanSession) {
+      return { success: true, aborted: false, noop: true, roomId }
+    }
+
+    const repairedSession = markSessionAborted(
+      orphanSession,
+      undefined,
+      ORPHAN_ABORT_MESSAGE,
+      ORPHAN_ABORT_MESSAGE,
+      'orphan_running_repaired'
+    )
+    return {
+      success: true,
+      aborted: true,
+      repaired: true,
+      roomId,
+      sessionId: repairedSession.id,
+      session: repairedSession
+    }
+  }
 
   const pending = pendingSettlements.get(running.sessionId)
   if (pending) {
@@ -1007,13 +1056,50 @@ export function abortDebate(roomId: string): boolean {
     pendingSettlements.delete(running.sessionId)
     runningSessions.delete(roomId)
     pending.callbacks.onSessionFinished(abortedSession)
-    return true
+    return {
+      success: true,
+      aborted: true,
+      roomId,
+      sessionId: abortedSession.id,
+      session: abortedSession
+    }
   }
+
+  const runningSession = sessionRepo.getSessionById(running.sessionId)
+  const abortedSession = runningSession
+    ? markSessionAborted(runningSession, { onMessage: running.callbacks.onMessage })
+    : undefined
 
   if (!running.controller.signal.aborted) {
     running.controller.abort(new DebateAbortError())
   }
-  return true
+  runningSessions.delete(roomId)
+
+  return {
+    success: true,
+    aborted: true,
+    roomId,
+    sessionId: running.sessionId,
+    session: abortedSession
+  }
+}
+
+export function repairStaleRunningDebates(): StaleRunningRepairResult {
+  const repairedSessions = sessionRepo.getRunningSessions().map((session) =>
+    markSessionAborted(
+      session,
+      undefined,
+      STARTUP_STALE_ABORT_MESSAGE,
+      STARTUP_STALE_ABORT_MESSAGE,
+      'startup_stale_running_repaired'
+    )
+  )
+
+  return {
+    repairedCount: repairedSessions.length,
+    repairedSessionIds: repairedSessions.map((session) => session.id),
+    sessions: repairedSessions
+  }
 }
 
 /**

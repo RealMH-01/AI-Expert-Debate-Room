@@ -35,57 +35,12 @@ const DebatePanel: React.FC<DebatePanelProps> = ({ roomId }) => {
   const [isAborting, setIsAborting] = useState(false)
   const [validation, setValidation] = useState<ValidationResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
 
   // 投票和结算状态
   const [settlement, setSettlement] = useState<SettlementResultDisplay | null>(null)
   const [hellPoolExperts, setHellPoolExperts] = useState<Agent[]>([])
   const [aliveExperts, setAliveExperts] = useState<Agent[]>([])
-
-  // 初始化：校验配置 + 检查运行状态
-  useEffect(() => {
-    const init = async () => {
-      // 校验
-      const valRes = await window.api.debateValidate(roomId)
-      if (valRes.success && valRes.data) {
-        setValidation(valRes.data)
-      }
-
-      // 检查是否正在运行
-      const runRes = await window.api.debateIsRunning(roomId)
-      if (runRes.success) {
-        setIsRunning(runRes.data === true)
-      }
-
-      // 加载最近的 session（如果有）
-      const sessRes = await window.api.sessionGetByRoom(roomId)
-      if (sessRes.success && sessRes.data && sessRes.data.length > 0) {
-        const latestSession = sessRes.data[0]
-        setSession(latestSession)
-        setCurrentPhase(latestSession.current_phase as DebatePhase | null)
-
-        // 加载该 session 的消息
-        const msgRes = await window.api.messageGetBySession(latestSession.id)
-        if (msgRes.success && msgRes.data) {
-          setMessages(msgRes.data)
-        }
-
-        if (latestSession.status === 'running') {
-          setIsRunning(true)
-        }
-
-        // 检查是否有待确认结算
-        const pendingRes = await window.api.settlementGetPending(latestSession.id)
-        if (pendingRes.success && pendingRes.data) {
-          setSettlement(pendingRes.data as SettlementResultDisplay)
-        }
-      }
-
-      // 加载专家状态
-      await loadExpertStatus()
-    }
-
-    init()
-  }, [roomId])
 
   // 加载专家状态
   const loadExpertStatus = useCallback(async () => {
@@ -98,6 +53,49 @@ const DebatePanel: React.FC<DebatePanelProps> = ({ roomId }) => {
       setHellPoolExperts(hellRes.data)
     }
   }, [roomId])
+
+  const refreshRoomState = useCallback(async () => {
+    const valRes = await window.api.debateValidate(roomId)
+    if (valRes.success && valRes.data) {
+      setValidation(valRes.data)
+    }
+
+    const runRes = await window.api.debateIsRunning(roomId)
+    const isEngineRunning = runRes.success && runRes.data === true
+
+    const sessRes = await window.api.sessionGetByRoom(roomId)
+    let latestSession: Session | null = null
+    if (sessRes.success && sessRes.data && sessRes.data.length > 0) {
+      latestSession = sessRes.data[0]
+      setSession(latestSession)
+      setCurrentPhase(latestSession.current_phase as DebatePhase | null)
+
+      const msgRes = await window.api.messageGetBySession(latestSession.id)
+      if (msgRes.success && msgRes.data) {
+        setMessages(msgRes.data)
+      }
+
+      const pendingRes = await window.api.settlementGetPending(latestSession.id)
+      if (pendingRes.success && pendingRes.data) {
+        setSettlement(pendingRes.data as SettlementResultDisplay)
+      } else {
+        setSettlement(null)
+      }
+    } else {
+      setSession(null)
+      setCurrentPhase(null)
+      setMessages([])
+      setSettlement(null)
+    }
+
+    setIsRunning(isEngineRunning || latestSession?.status === 'running')
+    await loadExpertStatus()
+  }, [loadExpertStatus, roomId])
+
+  // 初始化：校验配置 + 检查运行状态
+  useEffect(() => {
+    void refreshRoomState()
+  }, [refreshRoomState])
 
   // 监听辩论事件
   useEffect(() => {
@@ -146,6 +144,7 @@ const DebatePanel: React.FC<DebatePanelProps> = ({ roomId }) => {
   const handleStartDebate = useCallback(
     async (question: string, attachments?: DebateAttachmentInput[]) => {
       setError(null)
+      setNotice(null)
       setIsAborting(false)
       setMessages([])
       setSession(null)
@@ -169,37 +168,30 @@ const DebatePanel: React.FC<DebatePanelProps> = ({ roomId }) => {
     [roomId]
   )
 
-  const refreshLatestSession = useCallback(async () => {
-    const sessRes = await window.api.sessionGetByRoom(roomId)
-    if (sessRes.success && sessRes.data && sessRes.data.length > 0) {
-      const latestSession = sessRes.data[0]
-      setSession(latestSession)
-      setCurrentPhase(latestSession.current_phase as DebatePhase | null)
-      const msgRes = await window.api.messageGetBySession(latestSession.id)
-      if (msgRes.success && msgRes.data) {
-        setMessages(msgRes.data)
-      }
-    }
-  }, [roomId])
-
   const handleAbortDebate = useCallback(async () => {
     setError(null)
+    setNotice(null)
     setIsAborting(true)
     try {
       const res = await window.api.debateAbort({ roomId, sessionId: session?.id })
       if (res.success) {
         setIsRunning(false)
         setSettlement(null)
-        await refreshLatestSession()
+        if (res.data?.repaired) {
+          setNotice('已清理卡住的运行状态，可以重新开始讨论。')
+        } else if (res.data?.noop) {
+          setNotice('当前没有正在运行的辩论，可以重新开始讨论。')
+        }
       } else {
         setError(res.error || '停止辩论失败')
       }
     } catch (error) {
       setError(error instanceof Error ? error.message : '停止辩论失败')
     } finally {
+      await refreshRoomState()
       setIsAborting(false)
     }
-  }, [roomId, session?.id, refreshLatestSession])
+  }, [roomId, session?.id, refreshRoomState])
 
   // 应用结算
   const handleApplySettlement = useCallback(async () => {
@@ -240,6 +232,11 @@ const DebatePanel: React.FC<DebatePanelProps> = ({ roomId }) => {
       {error && (
         <div className="debate-error-banner">
           ✗ {error}
+        </div>
+      )}
+      {notice && (
+        <div className="debate-info-banner">
+          {notice}
         </div>
       )}
 

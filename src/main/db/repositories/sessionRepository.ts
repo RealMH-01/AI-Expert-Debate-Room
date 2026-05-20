@@ -9,6 +9,8 @@ import { v4 as uuidv4 } from 'uuid'
 import { getDatabase } from '../sqlite'
 import type { Session, SessionStatus, DebatePhase } from '../../../shared/types'
 
+const TERMINAL_SESSION_STATUSES = new Set<SessionStatus>(['finished', 'failed', 'aborted'])
+
 /**
  * 创建会议
  */
@@ -38,11 +40,20 @@ export function updateSessionStatus(
 ): Session | undefined {
   const db = getDatabase()
   const now = new Date().toISOString()
-  db.prepare(`UPDATE sessions SET status = ?, updated_at = ? WHERE id = ?`).run(
-    status,
-    now,
-    sessionId
-  )
+  if (TERMINAL_SESSION_STATUSES.has(status)) {
+    db.prepare(`UPDATE sessions SET status = ?, updated_at = ?, ended_at = ? WHERE id = ?`).run(
+      status,
+      now,
+      now,
+      sessionId
+    )
+  } else {
+    db.prepare(`UPDATE sessions SET status = ?, updated_at = ?, ended_at = NULL WHERE id = ?`).run(
+      status,
+      now,
+      sessionId
+    )
+  }
   return getSessionById(sessionId)
 }
 
@@ -73,8 +84,8 @@ export function finishSession(
   const db = getDatabase()
   const now = new Date().toISOString()
   db.prepare(
-    `UPDATE sessions SET status = 'finished', final_summary = ?, current_phase = 'moderator_final_summary', updated_at = ? WHERE id = ?`
-  ).run(finalSummary, now, sessionId)
+    `UPDATE sessions SET status = 'finished', final_summary = ?, current_phase = 'moderator_final_summary', updated_at = ?, ended_at = ? WHERE id = ?`
+  ).run(finalSummary, now, now, sessionId)
   return getSessionById(sessionId)
 }
 
@@ -88,8 +99,8 @@ export function failSession(
   const db = getDatabase()
   const now = new Date().toISOString()
   db.prepare(
-    `UPDATE sessions SET status = 'failed', final_summary = ?, updated_at = ? WHERE id = ?`
-  ).run(`[ERROR] ${errorMessage}`, now, sessionId)
+    `UPDATE sessions SET status = 'failed', final_summary = ?, updated_at = ?, ended_at = ? WHERE id = ?`
+  ).run(`[ERROR] ${errorMessage}`, now, now, sessionId)
   return getSessionById(sessionId)
 }
 
@@ -97,11 +108,17 @@ export function abortSession(
   sessionId: string,
   reason = '用户已中止本次辩论。'
 ): Session | undefined {
+  const current = getSessionById(sessionId)
+  if (!current) return undefined
+  if (TERMINAL_SESSION_STATUSES.has(current.status)) {
+    return current
+  }
+
   const db = getDatabase()
   const now = new Date().toISOString()
   db.prepare(
-    `UPDATE sessions SET status = 'aborted', final_summary = ?, updated_at = ? WHERE id = ?`
-  ).run(reason, now, sessionId)
+    `UPDATE sessions SET status = 'aborted', final_summary = ?, updated_at = ?, ended_at = ? WHERE id = ?`
+  ).run(reason, now, now, sessionId)
   return getSessionById(sessionId)
 }
 
@@ -131,4 +148,11 @@ export function getRunningSession(roomId: string): Session | undefined {
   return db
     .prepare("SELECT * FROM sessions WHERE room_id = ? AND status = 'running' LIMIT 1")
     .get(roomId) as Session | undefined
+}
+
+export function getRunningSessions(): Session[] {
+  const db = getDatabase()
+  return db
+    .prepare("SELECT * FROM sessions WHERE status = 'running' ORDER BY created_at ASC")
+    .all() as Session[]
 }

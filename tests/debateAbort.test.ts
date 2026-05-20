@@ -123,7 +123,12 @@ vi.mock('../src/main/db/repositories/sessionRepository', () => ({
     return session
   },
   getSessionById: (id: string) => sessions.get(id),
-  getRunningSession: () => undefined,
+  getRunningSession: (roomId: string) =>
+    [...sessions.values()].find(
+      (session) => session.room_id === roomId && session.status === 'running'
+    ),
+  getRunningSessions: () =>
+    [...sessions.values()].filter((session) => session.status === 'running'),
   updateSessionPhase: (sessionId: string, phase: DebatePhase) => {
     const session = sessions.get(sessionId)!
     const updated = { ...session, current_phase: phase }
@@ -145,7 +150,9 @@ vi.mock('../src/main/db/repositories/sessionRepository', () => ({
     const updated: Session = {
       ...session,
       status: 'aborted',
-      final_summary: reason ?? null
+      final_summary: reason ?? null,
+      updated_at: '2026-01-01T00:00:01.000Z',
+      ...( { ended_at: '2026-01-01T00:00:01.000Z' } as Partial<Session> )
     }
     sessions.set(sessionId, updated)
     return updated
@@ -287,7 +294,18 @@ describe('debate abort', () => {
       expect(capturedSignal).toBeDefined()
     })
 
-    expect(abortDebate(room.id)).toBe(true)
+    const abortResult = abortDebate(room.id)
+
+    expect(abortResult).toMatchObject({
+      success: true,
+      aborted: true,
+      roomId: room.id,
+      sessionId: 'session-1'
+    })
+    expect(sessions.get('session-1')?.status).toBe('aborted')
+    expect((sessions.get('session-1') as Session & { ended_at?: string })?.ended_at).toBeDefined()
+    expect(isDebateRunning(room.id)).toBe(false)
+
     await debatePromise
 
     expect(capturedSignal?.aborted).toBe(true)
@@ -317,7 +335,12 @@ describe('debate abort', () => {
     expect(settlements).toHaveLength(1)
     expect(settlements[0].status).toBe('pending')
 
-    expect(abortDebate(room.id)).toBe(true)
+    expect(abortDebate(room.id)).toMatchObject({
+      success: true,
+      aborted: true,
+      roomId: room.id,
+      sessionId: 'session-1'
+    })
 
     expect(capturedSignal?.aborted).toBe(true)
     expect(settlements[0].status).toBe('vetoed')
@@ -328,9 +351,98 @@ describe('debate abort', () => {
     expect(sessionRepo.finishSession).not.toHaveBeenCalled()
   })
 
-  it('returns false when there is no running debate to abort', async () => {
+  it('repairs an orphan database running session when there is no active run', async () => {
+    const orphan: Session = {
+      id: 'orphan-session',
+      room_id: room.id,
+      title: 'Orphan',
+      user_question: 'stuck?',
+      status: 'running',
+      current_phase: 'expert_initial',
+      final_summary: null,
+      created_at: '2026-01-01T00:00:00.000Z',
+      updated_at: '2026-01-01T00:00:00.000Z'
+    }
+    sessions.set(orphan.id, orphan)
+    messages.push({
+      id: 'existing-message',
+      session_id: orphan.id,
+      round_index: 0,
+      phase: 'expert_initial',
+      speaker_id: null,
+      speaker_name: '系统',
+      speaker_role: 'system',
+      content: 'existing transcript stays',
+      structured_json: null,
+      created_at: '2026-01-01T00:00:00.000Z'
+    })
+
+    const { abortDebate, isDebateRunning, validateRoomCanStart } = await import('../src/main/debate/debateEngine')
+
+    const result = abortDebate(room.id)
+
+    expect(result).toMatchObject({
+      success: true,
+      aborted: true,
+      repaired: true,
+      roomId: room.id,
+      sessionId: orphan.id
+    })
+    expect(sessions.get(orphan.id)?.status).toBe('aborted')
+    expect((sessions.get(orphan.id) as Session & { ended_at?: string })?.ended_at).toBeDefined()
+    expect(messages.some((message) => message.content.includes('已清理卡住的运行状态'))).toBe(true)
+    expect(messages.some((message) => message.content === 'existing transcript stays')).toBe(true)
+    expect(isDebateRunning(room.id)).toBe(false)
+    expect(validateRoomCanStart(room.id).valid).toBe(true)
+  })
+
+  it('returns a noop success when there is no active or database running debate', async () => {
     const { abortDebate } = await import('../src/main/debate/debateEngine')
 
-    expect(abortDebate('missing-room')).toBe(false)
+    expect(abortDebate('missing-room')).toMatchObject({
+      success: true,
+      aborted: false,
+      noop: true,
+      roomId: 'missing-room'
+    })
+  })
+
+  it('repairs stale running sessions on app startup without deleting transcript messages', async () => {
+    const stale: Session = {
+      id: 'stale-session',
+      room_id: room.id,
+      title: 'Stale',
+      user_question: 'left behind?',
+      status: 'running',
+      current_phase: 'expert_initial',
+      final_summary: null,
+      created_at: '2026-01-01T00:00:00.000Z',
+      updated_at: '2026-01-01T00:00:00.000Z'
+    }
+    sessions.set(stale.id, stale)
+    messages.push({
+      id: 'transcript-message',
+      session_id: stale.id,
+      round_index: 0,
+      phase: 'expert_initial',
+      speaker_id: 'expert-1',
+      speaker_name: 'Expert 1',
+      speaker_role: 'expert',
+      content: 'saved transcript',
+      structured_json: null,
+      created_at: '2026-01-01T00:00:00.000Z'
+    })
+
+    const { repairStaleRunningDebates } = await import('../src/main/debate/debateEngine')
+
+    const result = repairStaleRunningDebates()
+
+    expect(result).toMatchObject({
+      repairedCount: 1,
+      repairedSessionIds: [stale.id]
+    })
+    expect(sessions.get(stale.id)?.status).toBe('aborted')
+    expect(messages.some((message) => message.content === 'saved transcript')).toBe(true)
+    expect(messages.some((message) => message.content.includes('应用启动时清理了上次未正常结束的辩论'))).toBe(true)
   })
 })

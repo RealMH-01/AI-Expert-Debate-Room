@@ -157,6 +157,7 @@ export interface Session {
   final_summary: string | null
   created_at: string
   updated_at: string
+  ended_at?: string | null
 }
 
 // ===== Attachment 类型 =====

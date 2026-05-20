@@ -24,6 +24,7 @@ import { registerExportIpc } from './ipc/export.ipc'
 import { registerProviderIpc } from './ipc/provider.ipc'
 import { registerMemoryIpc } from './ipc/memory.ipc'
 import { registerAttachmentIpc } from './ipc/attachment.ipc'
+import { repairStaleRunningDebates } from './debate/debateEngine'
 
 function formatStartupError(error: unknown): string {
   if (error instanceof Error) {
@@ -133,6 +134,12 @@ app.whenReady().then(() => {
   try {
     const db = initDatabase()
     runMigrations(db)
+    const repairResult = repairStaleRunningDebates()
+    if (repairResult.repairedCount > 0) {
+      console.warn(
+        `[Main] 已清理 ${repairResult.repairedCount} 个上次未正常结束的运行中会议`
+      )
+    }
     console.log('[Main] 数据库初始化完成')
   } catch (error) {
     console.error('[Main] Database initialization failed', error)

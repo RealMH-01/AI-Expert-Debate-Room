@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   final_summary   TEXT,
   created_at      TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  ended_at        TEXT,
   FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
 );
 

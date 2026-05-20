@@ -296,6 +296,13 @@ CREATE TABLE IF NOT EXISTS attachments (
 
 CREATE INDEX IF NOT EXISTS idx_attachments_session_id ON attachments(session_id);
 `
+  },
+  {
+    version: 9,
+    name: 'add session ended_at timestamp',
+    sql: `
+ALTER TABLE sessions ADD COLUMN ended_at TEXT;
+`
   }
 ]
 
