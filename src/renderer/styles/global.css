@@ -975,6 +975,52 @@ html, body, #root {
   color: var(--color-text);
 }
 
+.message-raw-output {
+  margin-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: 8px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.message-raw-output summary {
+  cursor: pointer;
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.raw-output-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.raw-output-meta span {
+  padding: 2px 6px;
+  border-radius: 3px;
+  background-color: rgba(160, 160, 176, 0.12);
+}
+
+.raw-output-error,
+.raw-output-text {
+  overflow: auto;
+  max-height: 260px;
+  margin-top: 8px;
+  padding: 8px;
+  border-radius: 6px;
+  background-color: rgba(0, 0, 0, 0.18);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.raw-output-error {
+  color: var(--color-warning);
+}
+
 /* Markdown 简化渲染 */
 .md-content {
   /* container */

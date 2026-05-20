@@ -54,7 +54,12 @@ import { validateBallot } from '../voting/voteValidator'
 import { calculateRanking } from '../scoring/ranking'
 import { generateSettlementPreview, calculateInfluenceChange, calculatePrestigeChange } from '../scoring/hpSettlement'
 import type { SingleVote, SettlementResult } from '../voting/voteTypes'
-import { normalizeProviderDebateOutput } from '../claims/claimTracker'
+import {
+  attachStructuredOutputRetryMetadata,
+  normalizeProviderDebateOutput,
+  type NormalizedProviderDebateOutput,
+  type StructuredOutputErrorType
+} from '../claims/claimTracker'
 import { buildSessionContextSummary } from '../context/contextCompressor'
 import { trackModelCallUsage } from '../cost/usageTracker'
 import { ensureMemorySuggestionsForMeeting } from '../memory/projectMemory'
@@ -427,6 +432,66 @@ function saveClaimsAndAttacks(
   }
 }
 
+async function generateNormalizedExpertOutputWithRetry(params: {
+  sessionId: string
+  phase: DebatePhase
+  roundIndex: number
+  expert: Agent
+  provider: DebateModelProvider
+  input: DebateGenerateInput
+  generate: (input: DebateGenerateInput) => Promise<DebateGenerateOutput>
+}): Promise<NormalizedProviderDebateOutput> {
+  const firstOutput = await trackDebateCall(
+    params.sessionId,
+    params.phase,
+    params.roundIndex,
+    params.expert,
+    params.provider,
+    params.input,
+    () => params.generate(params.input)
+  )
+  const firstNormalized = normalizeProviderDebateOutput(firstOutput)
+
+  if (firstNormalized.errorType !== 'json_parse_failed') {
+    return firstNormalized
+  }
+
+  const retryInput: DebateGenerateInput = {
+    ...params.input,
+    structuredOutputRetry: {
+      previousError: firstNormalized.parseError,
+      previousRawHead: typeof firstNormalized.structuredJson?.rawHead === 'string'
+        ? firstNormalized.structuredJson.rawHead
+        : undefined
+    }
+  }
+
+  const retryOutput = await trackDebateCall(
+    params.sessionId,
+    params.phase,
+    params.roundIndex,
+    params.expert,
+    params.provider,
+    retryInput,
+    () => params.generate(retryInput)
+  )
+  const retryNormalized = normalizeProviderDebateOutput(retryOutput)
+
+  return attachStructuredOutputRetryMetadata(retryNormalized, {
+    attempted: true,
+    succeeded: !retryNormalized.errorType,
+    attempts: 1,
+    previousErrorType: firstNormalized.errorType,
+    previousParseError: firstNormalized.parseError
+  })
+}
+
+function classifyProviderFailure(errorMsg: string): StructuredOutputErrorType | 'provider_error' {
+  if (errorMsg.startsWith('output_truncated:')) return 'output_truncated'
+  if (errorMsg.startsWith('provider_incomplete:')) return 'provider_incomplete'
+  return 'provider_error'
+}
+
 function providerLabel(agent: Agent, provider: DebateModelProvider): string {
   return agent.provider || provider.name || 'unknown'
 }
@@ -626,16 +691,15 @@ async function runInitialAnswers(
     const expertProvider = getProviderForAgent(expert)
 
     try {
-      const output = await trackDebateCall(
-        session.id,
+      const normalized = await generateNormalizedExpertOutputWithRetry({
+        sessionId: session.id,
         phase,
-        0,
+        roundIndex: 0,
         expert,
-        expertProvider,
+        provider: expertProvider,
         input,
-        () => expertProvider.generateExpertInitialAnswer(input)
-      )
-      const normalized = normalizeProviderDebateOutput(output)
+        generate: (nextInput) => expertProvider.generateExpertInitialAnswer(nextInput)
+      })
 
       const message = messageRepo.insertMessage({
         sessionId: session.id,
@@ -674,7 +738,12 @@ async function runInitialAnswers(
         speakerName: '系统',
         speakerRole: 'system',
         content: `[发言失败] ${expert.name} 首轮回答生成失败: ${errorMsg}`,
-        structuredJson: JSON.stringify({ type: 'expert_call_failed', agentId: expert.id, error: errorMsg })
+        structuredJson: JSON.stringify({
+          type: 'expert_call_failed',
+          agentId: expert.id,
+          error: errorMsg,
+          errorType: classifyProviderFailure(errorMsg)
+        })
       })
       callbacks.onMessage(failMessage)
     }
@@ -725,16 +794,15 @@ async function runDebateRound(
     const expertProvider = getProviderForAgent(expert)
 
     try {
-      const output = await trackDebateCall(
-        session.id,
-        debatePhase,
+      const normalized = await generateNormalizedExpertOutputWithRetry({
+        sessionId: session.id,
+        phase: debatePhase,
         roundIndex,
         expert,
-        expertProvider,
+        provider: expertProvider,
         input,
-        () => expertProvider.generateExpertDebateTurn(input)
-      )
-      const normalized = normalizeProviderDebateOutput(output)
+        generate: (nextInput) => expertProvider.generateExpertDebateTurn(nextInput)
+      })
 
       const message = messageRepo.insertMessage({
         sessionId: session.id,
@@ -772,7 +840,13 @@ async function runDebateRound(
         speakerName: '系统',
         speakerRole: 'system',
         content: `[发言失败] ${expert.name} 第 ${roundIndex} 轮发言生成失败: ${errorMsg}`,
-        structuredJson: JSON.stringify({ type: 'expert_call_failed', agentId: expert.id, round: roundIndex, error: errorMsg })
+        structuredJson: JSON.stringify({
+          type: 'expert_call_failed',
+          agentId: expert.id,
+          round: roundIndex,
+          error: errorMsg,
+          errorType: classifyProviderFailure(errorMsg)
+        })
       })
       callbacks.onMessage(failMessage)
     }

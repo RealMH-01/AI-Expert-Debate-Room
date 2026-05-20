@@ -23,6 +23,21 @@ const SCROLL_BOTTOM_THRESHOLD_PX = 100
 const COLLAPSED_PREVIEW_CHARS = 720
 const COLLAPSED_PREVIEW_LINES = 8
 
+interface StructuredOutputFailureDetails {
+  type: string
+  errorType: string
+  parseError?: string
+  rawLength?: number
+  rawHead?: string
+  rawTail?: string
+  rawTruncatedForStorage?: boolean
+  retry?: {
+    attempted?: boolean
+    succeeded?: boolean
+    attempts?: number
+  }
+}
+
 function isExpertMessage(message: Message): boolean {
   return message.speaker_role !== 'moderator' && message.speaker_role !== 'system'
 }
@@ -89,6 +104,43 @@ function getCollapsedContent(content: string): string {
   }
 
   return `${content.slice(0, COLLAPSED_PREVIEW_CHARS).trimEnd()}\n...`
+}
+
+function parseStructuredOutputFailure(structuredJson: string | null): StructuredOutputFailureDetails | null {
+  if (!structuredJson) return null
+  try {
+    const parsed = JSON.parse(structuredJson) as Partial<StructuredOutputFailureDetails>
+    if (parsed.type !== 'expert_output_parse_failed') return null
+    return {
+      type: parsed.type,
+      errorType: typeof parsed.errorType === 'string' ? parsed.errorType : 'json_parse_failed',
+      parseError: typeof parsed.parseError === 'string'
+        ? parsed.parseError
+        : typeof (parsed as { error?: unknown }).error === 'string'
+          ? String((parsed as { error?: unknown }).error)
+          : undefined,
+      rawLength: typeof parsed.rawLength === 'number' ? parsed.rawLength : undefined,
+      rawHead: typeof parsed.rawHead === 'string'
+        ? parsed.rawHead
+        : typeof (parsed as { raw?: unknown }).raw === 'string'
+          ? String((parsed as { raw?: unknown }).raw)
+          : typeof (parsed as { rawPreview?: unknown }).rawPreview === 'string'
+            ? String((parsed as { rawPreview?: unknown }).rawPreview)
+            : undefined,
+      rawTail: typeof parsed.rawTail === 'string' ? parsed.rawTail : undefined,
+      rawTruncatedForStorage: Boolean(parsed.rawTruncatedForStorage),
+      retry: parsed.retry
+    }
+  } catch {
+    return null
+  }
+}
+
+function formatRetryStatus(details: StructuredOutputFailureDetails): string {
+  if (!details.retry?.attempted) return '未自动重试'
+  return details.retry.succeeded
+    ? `已自动重试 ${details.retry.attempts ?? 1} 次并成功`
+    : `已自动重试 ${details.retry.attempts ?? 1} 次，仍失败`
 }
 
 function isNearScrollBottom(element: HTMLDivElement): boolean {
@@ -193,6 +245,7 @@ const TranscriptView: React.FC<TranscriptViewProps> = ({ messages, currentPhase 
           const structuredCounts = expertMessage
             ? getStructuredJsonCounts(message.structured_json)
             : null
+          const structuredFailure = parseStructuredOutputFailure(message.structured_json)
 
           return (
             <React.Fragment key={message.id}>
@@ -223,6 +276,29 @@ const TranscriptView: React.FC<TranscriptViewProps> = ({ messages, currentPhase 
                 <div className="message-content">
                   {renderMarkdownLite(displayContent)}
                 </div>
+                {structuredFailure && (
+                  <details className="message-raw-output">
+                    <summary>查看错误详情与原始输出</summary>
+                    <div className="raw-output-meta">
+                      <span>错误类型: {structuredFailure.errorType}</span>
+                      <span>{formatRetryStatus(structuredFailure)}</span>
+                      {structuredFailure.rawLength != null && (
+                        <span>原始长度: {structuredFailure.rawLength}</span>
+                      )}
+                    </div>
+                    {structuredFailure.parseError && (
+                      <pre className="raw-output-error">{structuredFailure.parseError}</pre>
+                    )}
+                    {structuredFailure.rawHead && (
+                      <pre className="raw-output-text">
+                        {structuredFailure.rawHead}
+                        {structuredFailure.rawTail && structuredFailure.rawTail !== structuredFailure.rawHead
+                          ? `\n\n...\n\n${structuredFailure.rawTail}`
+                          : ''}
+                      </pre>
+                    )}
+                  </details>
+                )}
                 {shouldCollapse && (
                   <button
                     type="button"

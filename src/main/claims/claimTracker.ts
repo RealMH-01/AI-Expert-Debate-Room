@@ -15,6 +15,11 @@ export const ATTACK_DIMENSIONS = [
 
 export type AttackDimension = (typeof ATTACK_DIMENSIONS)[number]
 export type ClaimStatus = 'active' | 'revised' | 'abandoned'
+export type StructuredOutputErrorType =
+  | 'json_parse_failed'
+  | 'schema_failed'
+  | 'output_truncated'
+  | 'provider_incomplete'
 
 export interface NormalizedClaimInput {
   claim_text: string
@@ -35,13 +40,22 @@ export interface NormalizedProviderDebateOutput {
   claims: NormalizedClaimInput[]
   attacks: NormalizedAttackInput[]
   structuredJson: Record<string, unknown> | null
+  errorType?: StructuredOutputErrorType
   parseError?: string
+}
+
+export interface StructuredOutputRetryMetadata {
+  attempted: boolean
+  succeeded: boolean
+  attempts: number
+  previousErrorType?: StructuredOutputErrorType
+  previousParseError?: string
 }
 
 const ATTACK_DIMENSION_SET = new Set<string>(ATTACK_DIMENSIONS)
 const CLAIM_STATUSES = new Set<string>(['active', 'revised', 'abandoned'])
-const PARSE_FAILED_MESSAGE = '[结构化输出解析失败] 该专家本轮输出不是合法 JSON，已隐藏原始输出。请提高输出上限或重试。'
-const RAW_OUTPUT_PREVIEW_LIMIT = 4000
+const RAW_OUTPUT_HEAD_LIMIT = 4000
+const RAW_OUTPUT_TAIL_LIMIT = 1000
 
 export function normalizeProviderDebateOutput(
   output: Pick<DebateGenerateOutput, 'content' | 'structuredJson'>
@@ -51,12 +65,14 @@ export function normalizeProviderDebateOutput(
     : parseJsonObject(output.content)
 
   if (!parsed.value) {
-    const structuredJson = buildParseFailedStructuredJson(output.content, parsed.error)
+    const errorType: StructuredOutputErrorType = 'json_parse_failed'
+    const structuredJson = buildParseFailedStructuredJson(output.content, parsed.error, errorType)
     return {
-      message: PARSE_FAILED_MESSAGE,
+      message: buildParseFailedMessage(errorType),
       claims: [],
       attacks: [],
       structuredJson,
+      errorType,
       parseError: parsed.error
     }
   }
@@ -64,11 +80,13 @@ export function normalizeProviderDebateOutput(
   const message = readString(parsed.value.message)
   if (!message) {
     const error = 'Parsed JSON is missing a non-empty message field'
+    const errorType: StructuredOutputErrorType = 'schema_failed'
     return {
-      message: PARSE_FAILED_MESSAGE,
+      message: buildParseFailedMessage(errorType),
       claims: [],
       attacks: [],
-      structuredJson: buildParseFailedStructuredJson(output.content, error),
+      structuredJson: buildParseFailedStructuredJson(output.content, error, errorType),
+      errorType,
       parseError: error
     }
   }
@@ -81,6 +99,23 @@ export function normalizeProviderDebateOutput(
     claims,
     attacks,
     structuredJson: parsed.value
+  }
+}
+
+export function attachStructuredOutputRetryMetadata(
+  normalized: NormalizedProviderDebateOutput,
+  retry: StructuredOutputRetryMetadata
+): NormalizedProviderDebateOutput {
+  const structuredJson = normalized.structuredJson
+    ? { ...normalized.structuredJson, retry }
+    : { retry }
+
+  return {
+    ...normalized,
+    message: normalized.errorType
+      ? buildParseFailedMessage(normalized.errorType, retry)
+      : normalized.message,
+    structuredJson
   }
 }
 
@@ -167,24 +202,56 @@ function parseJsonObject(content: string): {
 
 function buildParseFailedStructuredJson(
   raw: string,
-  error: string | undefined
+  error: string | undefined,
+  errorType: StructuredOutputErrorType
 ): Record<string, unknown> {
+  const safeRaw = sanitizeRawOutput(raw)
+  const rawHead = safeRaw.slice(0, RAW_OUTPUT_HEAD_LIMIT)
+  const rawTail = safeRaw.length > RAW_OUTPUT_TAIL_LIMIT
+    ? safeRaw.slice(-RAW_OUTPUT_TAIL_LIMIT)
+    : safeRaw
+
   const structuredJson: Record<string, unknown> = {
     type: 'expert_output_parse_failed',
+    errorType,
     hiddenFromTranscript: true,
     rawLength: raw.length,
+    rawHead,
+    rawTail,
+    rawTruncatedForStorage: safeRaw.length > RAW_OUTPUT_HEAD_LIMIT || safeRaw.length > RAW_OUTPUT_TAIL_LIMIT,
+    parseError: error ?? 'No JSON object found',
     error: error ?? 'No JSON object found'
   }
 
-  if (raw.length > RAW_OUTPUT_PREVIEW_LIMIT) {
-    structuredJson.rawPreview = raw.slice(0, RAW_OUTPUT_PREVIEW_LIMIT)
-    structuredJson.rawTruncated = true
-  } else {
-    structuredJson.raw = raw
-    structuredJson.rawTruncated = false
+  return structuredJson
+}
+
+function buildParseFailedMessage(
+  errorType: StructuredOutputErrorType,
+  retry?: StructuredOutputRetryMetadata
+): string {
+  if (errorType === 'output_truncated') {
+    return '[结构化输出解析失败] 模型输出达到上限导致 JSON 不完整。请缩短上下文或提高输出上限后重试。'
   }
 
-  return structuredJson
+  if (errorType === 'provider_incomplete') {
+    return '[结构化输出解析失败] Provider 未完成本轮输出，系统已保留错误详情。请稍后重试。'
+  }
+
+  const retryText = retry?.attempted
+    ? retry.succeeded
+      ? '系统已自动重试并修复。'
+      : '系统已自动重试 1 次，仍失败。'
+    : '系统已保留错误详情。'
+  const typeLabel = errorType === 'schema_failed' ? 'schema_failed' : 'json_parse_failed'
+  return `[结构化输出解析失败] 专家返回了无法解析的结构化 JSON。错误类型: ${typeLabel}。${retryText}`
+}
+
+function sanitizeRawOutput(raw: string): string {
+  return raw
+    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer ****')
+    .replace(/(sk|sk-ant|sk-or|sk-proj|sk-live)-[A-Za-z0-9_-]{8,}/gi, '$1-****')
+    .replace(/(api[_-]?key|x-api-key|x-goog-api-key|authorization|token|secret|auth)(["'\s:=]+)(["']?)[^"',\s}]+/gi, '$1$2$3****')
 }
 
 function readString(value: unknown): string | null {

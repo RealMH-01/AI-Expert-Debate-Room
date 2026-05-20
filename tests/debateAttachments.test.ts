@@ -280,4 +280,81 @@ describe('startDebate attachments', () => {
       expect(input.attachments).toEqual(insertedAttachments)
     }
   })
+
+  it('retries an expert initial answer once when JSON parsing fails and keeps the recovered output', async () => {
+    const invalidJson = '{"message":"missing comma" "claims":[],"attacks":[]}'
+    const recoveredJson = JSON.stringify({
+      message: 'Recovered answer',
+      claims: [{ claim_text: 'Recovered claim' }],
+      attacks: []
+    })
+    provider.generateExpertInitialAnswer
+      .mockResolvedValueOnce({ content: invalidJson })
+      .mockResolvedValueOnce({ content: recoveredJson })
+      .mockResolvedValue({ content: JSON.stringify({ message: 'Other answer', claims: [], attacks: [] }) })
+
+    const { startDebate } = await import('../src/main/debate/debateEngine')
+    const callbacks = {
+      onMessage: vi.fn(),
+      onPhaseChange: vi.fn(),
+      onSessionFinished: vi.fn(),
+      onError: vi.fn(),
+      onSettlementReady: vi.fn()
+    }
+
+    await startDebate(room.id, 'Please debate this', callbacks)
+
+    const firstExpertMessage = messages.find(
+      (message) => message.phase === 'expert_initial' && message.speaker_name === 'Expert 1'
+    )
+    expect(provider.generateExpertInitialAnswer).toHaveBeenCalledTimes(3)
+    expect(firstExpertMessage?.content).toBe('Recovered answer')
+    expect(JSON.parse(firstExpertMessage?.structured_json ?? '{}')).toMatchObject({
+      message: 'Recovered answer',
+      claims: [{ claim_text: 'Recovered claim' }],
+      retry: {
+        attempted: true,
+        succeeded: true,
+        attempts: 1
+      }
+    })
+  })
+
+  it('stores retry metadata and raw head/tail when expert initial retry still fails', async () => {
+    const firstInvalid = '{"message":"first" "claims":[],"attacks":[]}'
+    const secondInvalid = '{"message":"second" "claims":[],"attacks":[]}'
+    provider.generateExpertInitialAnswer
+      .mockResolvedValueOnce({ content: firstInvalid })
+      .mockResolvedValueOnce({ content: secondInvalid })
+      .mockResolvedValue({ content: JSON.stringify({ message: 'Other answer', claims: [], attacks: [] }) })
+
+    const { startDebate } = await import('../src/main/debate/debateEngine')
+    const callbacks = {
+      onMessage: vi.fn(),
+      onPhaseChange: vi.fn(),
+      onSessionFinished: vi.fn(),
+      onError: vi.fn(),
+      onSettlementReady: vi.fn()
+    }
+
+    await startDebate(room.id, 'Please debate this', callbacks)
+
+    const failedMessage = messages.find(
+      (message) => message.phase === 'expert_initial' && message.speaker_name === 'Expert 1'
+    )
+    const structured = JSON.parse(failedMessage?.structured_json ?? '{}')
+    expect(failedMessage?.content).toContain('[结构化输出解析失败]')
+    expect(structured).toMatchObject({
+      type: 'expert_output_parse_failed',
+      errorType: 'json_parse_failed',
+      rawHead: secondInvalid,
+      rawTail: secondInvalid,
+      retry: {
+        attempted: true,
+        succeeded: false,
+        attempts: 1
+      }
+    })
+    expect(messages.some((message) => message.speaker_name === 'Expert 2')).toBe(true)
+  })
 })

@@ -21,6 +21,7 @@ import {
   type ProviderId
 } from '../../../shared/providers/modelRegistry'
 import type { ProviderRequest, ProviderResponse } from '../types'
+import { sanitizeErrorMessage } from '../types'
 import type { DebatePhase } from '../../../shared/types'
 
 export const DEFAULT_OUTPUT_TOKENS_BY_PHASE: Record<DebatePhase, number> = {
@@ -107,7 +108,7 @@ export abstract class BaseAdapter implements DebateModelProvider {
       signal?: AbortSignal
     }
   ): Promise<DebateGenerateOutput> {
-    const response = await this.send({
+    const request: ProviderRequest = {
       model: this.model,
       messages: messages.map((message) => ({
         role: message.role,
@@ -118,7 +119,30 @@ export abstract class BaseAdapter implements DebateModelProvider {
       maxTokens: DEFAULT_OUTPUT_TOKENS_BY_PHASE[options.phase],
       responseFormat: options.responseFormat ?? 'text',
       thinking: { enabled: this.thinkingEnabled, effort: this.thinkingEnabled ? 'medium' : 'none' }
-    })
+    }
+    let providerFallback: DebateGenerateOutput['providerFallback'] | undefined
+    let response: ProviderResponse
+    try {
+      response = await this.send(request)
+    } catch (error) {
+      if (request.responseFormat === 'json_object' && isJsonObjectUnsupportedError(error)) {
+        const reason = sanitizeErrorMessage(error instanceof Error ? error.message : String(error))
+        console.warn(`[ProviderAdapter] json_object response_format fallback for ${this.name}: ${reason}`)
+        providerFallback = {
+          responseFormat: {
+            from: 'json_object',
+            to: 'text',
+            reason
+          }
+        }
+        response = await this.send({
+          ...request,
+          responseFormat: 'text'
+        })
+      } else {
+        throw error
+      }
+    }
     const finishError = getFinishReasonError(response)
     if (finishError) {
       throw new Error(finishError)
@@ -132,7 +156,8 @@ export abstract class BaseAdapter implements DebateModelProvider {
             completionTokens: response.usage.outputTokens ?? 0,
             totalTokens: response.usage.totalTokens ?? 0
           }
-        : undefined
+        : undefined,
+      providerFallback
     }
   }
 
@@ -141,13 +166,28 @@ export abstract class BaseAdapter implements DebateModelProvider {
   }
 
   protected shouldUseJsonModeForExpertOutput(): boolean {
-    if (this.providerId === 'deepseek' && this.thinkingEnabled) {
-      return false
-    }
     return getModelCapability(this.providerId, this.model)?.supportsJson === true
   }
 
   protected abstract send(request: ProviderRequest): Promise<ProviderResponse>
+}
+
+function isJsonObjectUnsupportedError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  const normalized = message.toLowerCase()
+  const mentionsJsonMode =
+    normalized.includes('response_format') ||
+    normalized.includes('json_object') ||
+    normalized.includes('json mode')
+  const explicitUnsupported =
+    normalized.includes('not support') ||
+    normalized.includes('unsupported') ||
+    normalized.includes('unrecognized') ||
+    normalized.includes('unknown parameter') ||
+    normalized.includes('invalid parameter') ||
+    normalized.includes('invalid_request') ||
+    normalized.includes('validation')
+  return mentionsJsonMode && explicitUnsupported
 }
 
 function getFinishReasonError(response: ProviderResponse): string | null {

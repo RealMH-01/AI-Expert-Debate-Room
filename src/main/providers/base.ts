@@ -66,6 +66,10 @@ export interface DebateGenerateInput {
   roomName: string
   /** 本次会议所有参与者共享的公共素材 */
   attachments?: DebateAttachmentContext[]
+  structuredOutputRetry?: {
+    previousError?: string
+    previousRawHead?: string
+  }
   signal?: AbortSignal
 }
 
@@ -91,6 +95,13 @@ export interface DebateGenerateOutput {
     promptTokens: number
     completionTokens: number
     totalTokens: number
+  }
+  providerFallback?: {
+    responseFormat?: {
+      from: 'json_object'
+      to: 'text'
+      reason: string
+    }
   }
 }
 
